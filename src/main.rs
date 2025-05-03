@@ -39,6 +39,10 @@ fn setup(mut commands: Commands) {
         KCCBundle::default(),
         children![(
             Camera3d::default(),
+            Projection::Perspective(PerspectiveProjection {
+                fov: 75.0_f32.to_radians(),
+                ..Default::default()
+            }),
             DefaultCamera,
             Transform::from_xyz(0.0, 0.75, 0.0)
         )],

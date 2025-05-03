@@ -1,6 +1,8 @@
 use std::f32::consts::PI;
 
-use avian3d::prelude::{Collider, RigidBody, ShapeCastConfig, SpatialQuery, SpatialQueryFilter};
+use avian3d::prelude::{
+    Collider, CollisionLayers, RigidBody, ShapeCastConfig, SpatialQuery, SpatialQueryFilter,
+};
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{ActionState, Actions};
 
@@ -63,7 +65,16 @@ impl Default for KCCBundle {
 const EXAMPLE_MOVEMENT_SPEED: f32 = 8.0;
 
 fn movement(
-    mut q_kcc: Query<(Entity, &mut Transform, &mut KinematicVelocity, &Collider), With<KCCMarker>>,
+    mut q_kcc: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut KinematicVelocity,
+            &Collider,
+            &CollisionLayers,
+        ),
+        With<KCCMarker>,
+    >,
     q_input: Single<&Actions<DefaultContext>>,
     q_camera: Query<&Transform, (With<DefaultCamera>, Without<KCCMarker>)>,
     time: Res<Time>,
@@ -82,7 +93,8 @@ fn movement(
     // Get the raw 2D input vector
     let input_vec = q_input.action::<Move>().value().as_axis2d();
 
-    let Some((entity, mut kcc_transform, mut kinematic_vel, collider)) = q_kcc.single_mut().ok()
+    let Some((entity, mut kcc_transform, mut kinematic_vel, collider, layers)) =
+        q_kcc.single_mut().ok()
     else {
         warn!("No KCC found!");
         return;
@@ -95,15 +107,16 @@ fn movement(
         .mul_vec3(Vec3::new(input_vec.x, 0.0, -input_vec.y))
         .normalize_or_zero();
 
-    let mut artifical_velocity = KinematicVelocity(direction * EXAMPLE_MOVEMENT_SPEED);
+    let mut artifical_velocity = direction * EXAMPLE_MOVEMENT_SPEED;
 
     move_and_slide(
         MoveAndSlideConfig::default(),
         collider,
         time.delta_secs(),
         &entity,
-        &mut kcc_transform,
+        &mut kcc_transform.translation,
         &mut artifical_velocity,
+        rotation,
         &spatial_query,
     );
 
@@ -126,27 +139,28 @@ impl Default for MoveAndSlideConfig {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn move_and_slide(
     config: MoveAndSlideConfig,
     collider: &Collider,
     delta_time: f32,
     entity: &Entity,
-    transform: &mut Transform,
-    velocity: &mut KinematicVelocity,
+    translation: &mut Vec3,
+    velocity: &mut Vec3,
+    rotation: Quat,
     spatial_query: &SpatialQuery,
+    filter: &SpatialQueryFilter,
 ) {
-    let mut excluded_entities = vec![*entity];
-    excluded_entities.push(*entity);
-    let mut remaining_velocity = velocity.0 * delta_time;
+    let mut remaining_velocity = *velocity * delta_time;
+
     for _ in 0..config.max_iterations {
         if let Some(hit) = spatial_query.cast_shape(
             collider,
-            transform.translation,
-            transform.rotation,
+            *translation,
+            rotation,
             Dir3::new(remaining_velocity.normalize_or_zero()).unwrap_or(Dir3::X),
             &ShapeCastConfig::from_max_distance(remaining_velocity.length()),
-            &SpatialQueryFilter::default()
-                .with_excluded_entities(excluded_entities.iter().copied()),
+            filter,
         ) {
             // Calculate our safe distances to move
             let safe_distance = (hit.distance - config.epsilon).max(0.0);
@@ -155,7 +169,7 @@ pub fn move_and_slide(
             let safe_movement = remaining_velocity * safe_distance;
 
             // Move the transform to just before the point of collision
-            transform.translation += safe_movement;
+            *translation += safe_movement;
 
             // Update the velocity by how much we moved
             remaining_velocity -= safe_movement;
@@ -163,20 +177,20 @@ pub fn move_and_slide(
             // Project velocity onto the surface plane
             remaining_velocity = remaining_velocity.reject_from(hit.normal1);
 
-            if remaining_velocity.dot(velocity.0) < 0.0 {
+            if remaining_velocity.dot(*velocity) < 0.0 {
                 // Don't allow sliding back into the surface
                 remaining_velocity = Vec3::ZERO;
                 break;
             }
         } else {
             // No collision, move the full remaining distance
-            transform.translation += remaining_velocity;
+            *translation += remaining_velocity;
             break;
         }
     }
 
     // Update the velocity for the next frame
-    velocity.0 = remaining_velocity;
+    *velocity = remaining_velocity;
 }
 
 fn update_grounded_and_sliding_state(
