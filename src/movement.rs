@@ -62,6 +62,19 @@ impl Default for KCCBundle {
     }
 }
 
+// // Example of stuff we could do
+#[derive(Component, Clone, Copy, Debug)]
+pub enum GameSurfaceType {
+    Example1,
+    Example2,
+}
+
+struct GameSurfaceCollision {
+    surface_type: Option<GameSurfaceType>,
+    collision_speed: f32, // just an example
+}
+// //
+
 const EXAMPLE_MOVEMENT_SPEED: f32 = 8.0;
 
 fn movement(
@@ -79,6 +92,7 @@ fn movement(
     q_camera: Query<&Transform, (With<DefaultCamera>, Without<KCCMarker>)>,
     time: Res<Time>,
     spatial_query: SpatialQuery,
+    q_surface: Query<(Entity, &GameSurfaceType)>,
 ) {
     // get camera rotation yaw
     let Some(camera_transform) = q_camera.single().ok() else {
@@ -115,7 +129,7 @@ fn movement(
 
     let rotation = kcc_transform.rotation;
 
-    move_and_slide(
+    let ordered_game_surface_col = move_and_slide(
         MoveAndSlideConfig::default(),
         collider,
         time.delta_secs(),
@@ -125,7 +139,34 @@ fn movement(
         rotation,
         &spatial_query,
         &filter,
+        &q_surface,
     );
+
+    for collision in ordered_game_surface_col {
+        if let Some(surface) = collision.surface_type {
+            match surface {
+                GameSurfaceType::Example1 => {
+                    // Handle example 1 surface collision
+                    info!(
+                        "Collided with Example1 surface! Speed: {}",
+                        collision.collision_speed
+                    );
+                }
+                GameSurfaceType::Example2 => {
+                    // Handle example 2 surface collision
+                    info!(
+                        "Collided with Example2 surface! Speed: {}",
+                        collision.collision_speed
+                    );
+                }
+            }
+        } else {
+            info!(
+                "Collided with unknown surface! Speed: {}",
+                collision.collision_speed
+            );
+        }
+    }
 }
 
 ////// EXAMPLE MOVEMENT /////////////
@@ -154,8 +195,11 @@ pub fn move_and_slide(
     rotation: Quat,
     spatial_query: &SpatialQuery,
     filter: &SpatialQueryFilter,
-) {
+    q_surface: &Query<(Entity, &GameSurfaceType)>,
+) -> Vec<GameSurfaceCollision> {
     let mut remaining_velocity = *velocity * delta_time;
+
+    let mut surface_collisions = Vec::new();
 
     for _ in 0..config.max_iterations {
         if let Some(hit) = spatial_query.cast_shape(
@@ -181,6 +225,15 @@ pub fn move_and_slide(
             // Project velocity onto the surface plane
             remaining_velocity = remaining_velocity.reject_from(hit.normal1);
 
+            // add the collision to the list of surface collisions
+            // if the entity doesn't have a surface type, we can add None to the list
+
+            let surface_type = q_surface.get(hit.entity).ok().map(|(_, surface)| *surface);
+            surface_collisions.push(GameSurfaceCollision {
+                surface_type,
+                collision_speed: remaining_velocity.length(),
+            });
+
             if remaining_velocity.dot(*velocity) < 0.0 {
                 // Don't allow sliding back into the surface
                 remaining_velocity = Vec3::ZERO;
@@ -195,6 +248,8 @@ pub fn move_and_slide(
 
     // Update the velocity for the next frame
     *velocity = remaining_velocity;
+
+    surface_collisions
 }
 
 fn update_grounded_and_sliding_state(

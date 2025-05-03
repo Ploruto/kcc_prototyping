@@ -12,6 +12,8 @@ use bevy::{
     prelude::*,
 };
 
+use crate::movement::GameSurfaceType;
+
 // --- Configuration Constants ---
 const MAP_SCALER: f32 = 1.0;
 const OBJECT_SPACING: f32 = 15.0 * MAP_SCALER;
@@ -278,6 +280,7 @@ pub fn create_level(
         Collider::cuboid(ramp_size.x, ramp_size.y, ramp_size.z),
         Geometry,
         Name::new("SteepRamp"),
+        GameSurfaceType::Example1,
         // VisibilityBundle::default(),
     ));
     current_x_offset += OBJECT_SPACING;
