@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 use avian3d::prelude::{
     Collider, CollisionLayers, RigidBody, ShapeCastConfig, SpatialQuery, SpatialQueryFilter,
 };
-use bevy::prelude::*;
+use bevy::{log::tracing::field::debug, prelude::*};
 use bevy_enhanced_input::prelude::{ActionState, Actions};
 
 use crate::{
@@ -109,6 +109,12 @@ fn movement(
 
     let mut artifical_velocity = direction * EXAMPLE_MOVEMENT_SPEED;
 
+    let filter = SpatialQueryFilter::default()
+        .with_excluded_entities(vec![entity])
+        .with_mask(layers.filters);
+
+    let rotation = kcc_transform.rotation;
+
     move_and_slide(
         MoveAndSlideConfig::default(),
         collider,
@@ -118,10 +124,8 @@ fn movement(
         &mut artifical_velocity,
         rotation,
         &spatial_query,
+        &filter,
     );
-
-    // update the kinematic velocity
-    kinematic_vel.0 = artifical_velocity.0;
 }
 
 ////// EXAMPLE MOVEMENT /////////////
@@ -227,11 +231,11 @@ fn update_grounded_and_sliding_state(
     let is_sliding = angle > config.max_walkable_slope_angle && angle < 90.0;
 
     if is_grounded {
-        println!("Grounded! Angle: {}", angle);
+        info!("Grounded! Angle: {}", angle.round());
         commands.entity(entity).insert(Grounded);
         commands.entity(entity).remove::<Sliding>();
     } else if is_sliding {
-        println!("Sliding! Angle: {}", angle);
+        info!("Sliding! Angle: {}", angle.round());
         commands.entity(entity).insert(Sliding);
         commands.entity(entity).remove::<Grounded>();
     } else {
