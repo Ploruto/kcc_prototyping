@@ -13,12 +13,33 @@ pub struct KCCPlugin;
 
 impl Plugin for KCCPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, movement);
+        app.insert_resource(KCCConfig {
+            max_walkable_slope_angle: 45.0,
+            max_step_height: 0.5,
+            ground_check_distance: 1.5,
+        });
+        app.add_systems(
+            FixedUpdate,
+            (update_grounded_and_sliding_state, movement).chain(),
+        );
     }
 }
 
 #[derive(Component)]
 pub struct KinematicVelocity(pub Vec3);
+
+#[derive(Component)]
+struct Grounded;
+
+#[derive(Component)]
+struct Sliding;
+
+#[derive(Resource)]
+struct KCCConfig {
+    pub max_walkable_slope_angle: f32, // in degrees
+    pub max_step_height: f32,
+    pub ground_check_distance: f32,
+}
 
 #[derive(Bundle)]
 pub struct KCCBundle {
@@ -76,9 +97,6 @@ fn movement(
 
     let mut artifical_velocity = KinematicVelocity(direction * EXAMPLE_MOVEMENT_SPEED);
 
-    // Apply the final movement
-    // kcc_transform.translation += direction * EXAMPLE_MOVEMENT_SPEED * time.delta_secs();
-
     move_and_slide(
         MoveAndSlideConfig::default(),
         collider,
@@ -87,7 +105,10 @@ fn movement(
         &mut kcc_transform,
         &mut artifical_velocity,
         &spatial_query,
-    )
+    );
+
+    // update the kinematic velocity
+    kinematic_vel.0 = artifical_velocity.0;
 }
 
 ////// EXAMPLE MOVEMENT /////////////
@@ -156,4 +177,51 @@ pub fn move_and_slide(
 
     // Update the velocity for the next frame
     velocity.0 = remaining_velocity;
+}
+
+fn update_grounded_and_sliding_state(
+    mut q_kcc: Query<(Entity, &mut Transform, &mut KinematicVelocity, &Collider), With<KCCMarker>>,
+    spatial_query: SpatialQuery,
+    config: Res<KCCConfig>,
+    mut commands: Commands,
+) {
+    let Some((entity, mut kcc_transform, mut kinematic_vel, collider)) = q_kcc.single_mut().ok()
+    else {
+        warn!("No KCC found!");
+        return;
+    };
+
+    let filter = SpatialQueryFilter::default().with_excluded_entities(vec![entity]);
+
+    let Some(ray) = spatial_query.cast_ray(
+        kcc_transform.translation,
+        Dir3::NEG_Y,
+        config.ground_check_distance,
+        false,
+        &filter,
+    ) else {
+        // No ground detected, handle airborne state
+        commands.entity(entity).remove::<Grounded>();
+        commands.entity(entity).remove::<Sliding>();
+        return;
+    };
+
+    // based on the angle of the normal, determine if we are grounded or sliding
+    let angle = ray.normal.angle_between(Vec3::Y).to_degrees();
+    let is_grounded = angle < config.max_walkable_slope_angle;
+
+    let is_sliding = angle > config.max_walkable_slope_angle && angle < 90.0;
+
+    if is_grounded {
+        println!("Grounded! Angle: {}", angle);
+        commands.entity(entity).insert(Grounded);
+        commands.entity(entity).remove::<Sliding>();
+    } else if is_sliding {
+        println!("Sliding! Angle: {}", angle);
+        commands.entity(entity).insert(Sliding);
+        commands.entity(entity).remove::<Grounded>();
+    } else {
+        commands.entity(entity).remove::<Grounded>();
+        commands.entity(entity).remove::<Sliding>();
+    }
 }
