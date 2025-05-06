@@ -60,8 +60,8 @@ pub struct MoveAndSlideResult {
 pub fn move_and_slide(
     spatial_query: &SpatialQuery,
     collider: &Collider,
-    translation: Vec3,
-    velocity: Vec3,
+    mut translation: Vec3,
+    mut velocity: Vec3,
     rotation: Quat,
     config: MoveAndSlideConfig,
     filter: &SpatialQueryFilter,
@@ -72,43 +72,28 @@ pub fn move_and_slide(
         return None;
     };
 
-    let mut translation = translation;
-    let mut velocity = velocity;
-
-    let mut remaining_time = delta_time;
-
     let mut hits = Vec::with_capacity(config.max_iterations);
 
-    for _ in 0..config.max_iterations {
-        let Ok((direction, max_distance)) = Dir3::new_and_length(velocity * remaining_time) else {
-            break;
-        };
+    let mut movement = MoveAndSlide::new(config, delta_time);
 
-        let Some((safe_movement, hit)) = character_sweep(
-            collider,
-            config.epsilon,
-            translation,
-            direction,
-            max_distance,
-            rotation,
-            spatial_query,
-            filter,
-        ) else {
-            // No collision, move the full remaining distance
-            translation += direction * max_distance;
-            break;
+    while let Ok(sweep) = movement.sweep(
+        translation,
+        rotation,
+        velocity,
+        collider,
+        spatial_query,
+        filter,
+    ) {
+        translation += sweep.motion();
+
+        let Some(hit) = sweep.hit else {
+            continue;
         };
 
         // Trigger callbacks
         on_hit(hit);
 
         hits.push(hit.normal1);
-
-        // Progress time by the movement amount
-        remaining_time *= 1.0 - safe_movement / max_distance;
-
-        // Move the transform to just before the point of collision
-        translation += direction * safe_movement;
 
         // Project velocity and remaining motion onto the surface plane
         velocity = solve_collision_planes(velocity, &hits, *original_direction);
@@ -123,6 +108,81 @@ pub fn move_and_slide(
         new_translation: translation,
         new_velocity: velocity,
     })
+}
+
+pub struct MoveAndSlide {
+    step_index: usize,
+    config: MoveAndSlideConfig,
+    remaining_time: f32,
+}
+
+impl MoveAndSlide {
+    fn new(config: MoveAndSlideConfig, delta: f32) -> Self {
+        Self {
+            step_index: 0,
+            config,
+            remaining_time: delta,
+        }
+    }
+
+    fn sweep(
+        &mut self,
+        translation: Vec3,
+        rotation: Quat,
+        velocity: Vec3,
+        collider: &Collider,
+        spatial_query: &SpatialQuery,
+        filter: &SpatialQueryFilter,
+    ) -> Result<SweepOutput, f32> {
+        if self.step_index == self.config.max_iterations {
+            return Err(self.remaining_time);
+        }
+
+        self.step_index += 1;
+
+        let (direction, max_distance) = Dir3::new_and_length(velocity * self.remaining_time)
+            .map_err(|_| self.remaining_time)?;
+
+        let Some((safe_distance, hit)) = character_sweep(
+            collider,
+            self.config.epsilon,
+            translation,
+            direction,
+            max_distance,
+            rotation,
+            spatial_query,
+            filter,
+        ) else {
+            // No collision, move the full remaining distance
+            self.remaining_time = 0.0;
+            return Ok(SweepOutput {
+                direction,
+                distance: max_distance,
+                hit: None,
+            });
+        };
+
+        // Progress time by the movement amount
+        self.remaining_time *= 1.0 - safe_distance / max_distance;
+
+        Ok(SweepOutput {
+            direction,
+            distance: safe_distance,
+            hit: Some(hit),
+        })
+    }
+}
+
+pub struct SweepOutput {
+    pub direction: Dir3,
+    pub distance: f32,
+    pub hit: Option<ShapeHitData>,
+}
+
+impl SweepOutput {
+    pub fn motion(&self) -> Vec3 {
+        self.direction * self.distance
+    }
 }
 
 fn similar_plane(normal1: Vec3, normal2: Vec3) -> bool {
