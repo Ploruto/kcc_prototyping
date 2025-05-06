@@ -9,16 +9,16 @@ use kcc_prototype::move_and_slide::{MoveAndSlideConfig, character_sweep, move_an
 
 use crate::input::{DefaultContext, Jump, Move};
 
-const EXAMPLE_MOVEMENT_SPEED: f32 = 8.0;
+const EXAMPLE_MOVEMENT_SPEED: f32 = 22.0;
 const EXAMPLE_FLOOR_ACCELERATION: f32 = 100.0;
 const EXAMPLE_AIR_ACCELERATION: f32 = 40.0;
-const EXAMPLE_FRICTION: f32 = 60.0;
+const EXAMPLE_FRICTION: f32 = 200.0;
 const EXAMPLE_WALKABLE_ANGLE: f32 = PI / 4.0;
 const EXAMPLE_JUMP_IMPULSE: f32 = 6.0;
 const EXAMPLE_GRAVITY: f32 = 20.0; // realistic earth gravity tend to feel wrong for games
 const EXAMPLE_CHARACTER_HEIGHT: f32 = 1.0;
 const EXAMPLE_CHARACTER_RADIUS: f32 = 0.35;
-const EXAMPLE_GROUND_MARGIN: f32 = 0.1;
+const EXAMPLE_GROUND_CHECK_DISTANCE: f32 = 0.2;
 
 pub struct KCCPlugin;
 
@@ -31,13 +31,12 @@ impl Plugin for KCCPlugin {
 #[derive(Component)]
 #[require(
     RigidBody = RigidBody::Kinematic,
-    Collider = Capsule3d::new(EXAMPLE_CHARACTER_RADIUS, EXAMPLE_CHARACTER_HEIGHT),
+    Collider = Cylinder::new(EXAMPLE_CHARACTER_RADIUS, EXAMPLE_CHARACTER_HEIGHT),
 )]
 pub struct Character {
     velocity: Vec3,
     floor: Option<Dir3>,
     up: Dir3,
-    jump_timer: Duration,
 }
 
 impl Default for Character {
@@ -46,7 +45,6 @@ impl Default for Character {
             velocity: Vec3::ZERO,
             floor: None,
             up: Dir3::Y,
-            jump_timer: Duration::ZERO,
         }
     }
 }
@@ -65,6 +63,7 @@ fn movement(
     spatial_query: SpatialQuery,
 ) {
     for (entity, mut transform, mut character, collider, layers) in &mut q_kcc {
+        let config = MoveAndSlideConfig::default();
 
         let mut jumped = false;
         let action_state = q_input.action::<Jump>().state();
@@ -73,7 +72,6 @@ fn movement(
                 let impulse = character.up * EXAMPLE_JUMP_IMPULSE;
                 character.velocity += impulse;
                 character.floor = None;
-                character.jump_timer = Duration::from_millis(20);
                 jumped = true;
             }
         }
@@ -82,7 +80,7 @@ fn movement(
         let input_vec = q_input.action::<Move>().value().as_axis2d();
 
         // Rotate the movement direction vector by the camera's yaw
-        let mut direction =
+        let direction =
             (transform.rotation * Vec3::new(input_vec.x, 0.0, -input_vec.y)).normalize_or_zero();
 
         let max_acceleration = match character.floor {
@@ -90,8 +88,8 @@ fn movement(
                 apply_friction(&mut character.velocity, EXAMPLE_FRICTION, time.delta_secs());
 
                 // Make sure velocity is never towards the floor since this makes the jump height inconsistent
-                // let downward_vel = character.velocity.dot(*floor_normal).min(0.0);
-                // character.velocity -= floor_normal * downward_vel;
+                let downward_vel = character.velocity.dot(*floor_normal).min(0.0);
+                character.velocity -= floor_normal * downward_vel;
 
                 // Project input direction on the floor normal to allow walking down slopes
                 // TODO: this is wrong, walking diagonally up/down slopes will be slightly off direction wise,
@@ -103,6 +101,7 @@ fn movement(
                 EXAMPLE_FLOOR_ACCELERATION
             }
             None => {
+
                 // Apply gravity when not grounded
                 let gravity = character.up * -EXAMPLE_GRAVITY * time.delta_secs();
                 character.velocity += gravity;
@@ -110,6 +109,7 @@ fn movement(
                 EXAMPLE_AIR_ACCELERATION
             }
         };
+
 
         // accelerate in the movement direction
         accelerate(
@@ -130,8 +130,6 @@ fn movement(
         // Also filter out sensor entities
         filter.excluded_entities.extend(sensors);
 
-        let config = MoveAndSlideConfig::default();
-
         let up = character.up;
 
         // Check if the floor is walkable
@@ -141,6 +139,7 @@ fn movement(
         };
 
         let mut floor = None;
+        let is_grounded = character.floor.is_some();
         move_and_slide(
             &spatial_query,
             collider,
@@ -151,43 +150,36 @@ fn movement(
             &filter,
             time.delta_secs(),
             |hit| {
-                if is_walkable(hit.raw_hit)
-                    // Must also be moving downwards (is this correct?)
-                    && hit.out_velocity.y <= 0.0
-                {
-                    floor = Some(Dir3::new(hit.raw_hit.normal1).unwrap_or(Dir3::Y));
+                if is_walkable(hit.raw_hit) {
+                    // Only check downward velocity for initial ground detection
+                    if !is_grounded && hit.out_velocity.y <= 0.0 {
+                        floor = Some(Dir3::new(hit.raw_hit.normal1).unwrap_or(Dir3::Y));
+                    }
                 }
             },
         );
 
         // Check for ground if we're not jumping
-        // And only check ground if we're moving downwards
-        if !jumped && character.velocity.y <= 0.0 {
+        if !jumped && character.floor.is_none() && character.velocity.y <= 0.0 {
             let ground_collider = Collider::cylinder(
-                EXAMPLE_CHARACTER_RADIUS - 0.01, 
-                EXAMPLE_CHARACTER_HEIGHT + EXAMPLE_CHARACTER_RADIUS * 2.0
+                EXAMPLE_CHARACTER_RADIUS,
+                EXAMPLE_CHARACTER_HEIGHT
             );
             if let Some((safe_movement_distance, hit)) = character_sweep(
                 &ground_collider,
                 config.epsilon,
-                transform.translation - Vec3::new(0.0, EXAMPLE_GROUND_MARGIN, 0.0),
+                transform.translation,
                 -character.up,
-                EXAMPLE_GROUND_MARGIN + config.epsilon,
+                EXAMPLE_GROUND_CHECK_DISTANCE,
                 rotation,
                 &spatial_query,
                 &filter,
             ) {
                 if is_walkable(hit) {
-                    transform.translation.y -= safe_movement_distance;
-                    //transform.translation.y = hit.point1.y + (EXAMPLE_CHARACTER_HEIGHT * 0.5 + EXAMPLE_CHARACTER_RADIUS * 0.5) + EXAMPLE_GROUND_MARGIN;
+                    transform.translation.y -= (safe_movement_distance - config.skin_width).max(0.0);
                     floor = Some(Dir3::new(hit.normal1).unwrap_or(Dir3::Y));
                 }
             }
-        }
-
-        // Update jump timer
-        if !character.jump_timer.is_zero() {
-            character.jump_timer = character.jump_timer.saturating_sub(time.delta());
         }
 
         character.floor = floor;
@@ -222,13 +214,17 @@ fn accelerate(
 
 /// Constant acceleration in the opposite direction of velocity.
 pub fn apply_friction(velocity: &mut Vec3, friction: f32, delta: f32) {
-    let speed_sq = velocity.length_squared();
+    let speed = velocity.length();
 
-    if speed_sq < 1e-4 {
+    if speed < 1e-4 {
         return;
     }
 
-    let factor = f32::exp(-friction / speed_sq.sqrt() * delta);
-
-    *velocity *= factor;
+    // Simple linear friction that's independent of speed
+    let friction_force = friction * delta;
+    if friction_force >= speed {
+        *velocity = Vec3::ZERO;
+    } else {
+        *velocity *= (speed - friction_force) / speed;
+    }
 }

@@ -58,7 +58,7 @@ fn setup(mut commands: Commands) {
     // Sun
     commands.spawn((
         DirectionalLight {
-            shadows_enabled: false,
+            shadows_enabled: true,
             illuminance: lux::RAW_SUNLIGHT,
             ..default()
         },

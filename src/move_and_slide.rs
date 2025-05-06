@@ -29,8 +29,8 @@ pub fn character_sweep(
     )?;
 
     // How far is safe to translate by
-    let safe_distance = (hit.distance - epsilon).max(0.0);
-
+    //let safe_distance = (hit.distance - epsilon).max(0.0);
+    let safe_distance = hit.distance;
     Some((safe_distance, hit))
 }
 
@@ -98,12 +98,6 @@ pub fn move_and_slide(
             break;
         };
 
-        // Check if we're hitting the same plane multiple times
-        if hits.iter().any(|&n| similar_plane(n, hit.normal1)) {
-            // Nudge velocity along the normal to prevent sticking
-            *velocity += hit.normal1 * config.skin_width;
-        }
-
         on_hit(&mut MoveAndSlideHit {
             raw_hit: hit,
             remaining_time,
@@ -123,14 +117,14 @@ pub fn move_and_slide(
         }
 
         // Calculate movement and remaining time
-        let movement_distance = (safe_movement - config.skin_width).max(0.0);
+        let movement = (safe_movement - config.skin_width).max(0.0);
         let movement_ratio = if max_distance > 0.0 {
-            (movement_distance / max_distance).clamp(0.0, 1.0)
+            (movement / max_distance).clamp(0.0, 1.0)
         } else {
             0.0
         };
-        remaining_time *= (1.0 - movement_ratio);
-        *translation += direction * movement_distance;
+        remaining_time *= 1.0 - movement_ratio;
+        *translation += direction * movement;
     }
 }
 
@@ -157,7 +151,8 @@ fn solve_collision_planes(
     if velocity.dot(first_hit_normal) >= 0.0 {
         return velocity;
     }
-    let initial_velocity = velocity.reject_from(first_hit_normal);
+
+    let initial_velocity = velocity.reject_from_normalized(first_hit_normal) * 1.001;
 
     // Join the original velocity direction as an additional constraining plane
     let original_velocity_normal = original_velocity_direction.normalize_or_zero();
@@ -171,7 +166,7 @@ fn solve_collision_planes(
     });
 
     filtered_hits.try_fold(initial_velocity, |vel, second_hit_normal| {
-        let vel = vel.reject_from(*second_hit_normal);
+        let vel = vel.reject_from_normalized(*second_hit_normal);
         let vel_dir = vel.normalize_or_zero();
 
         // If the velocity is already parallel to the first hit normal, we can return it directly
