@@ -66,7 +66,7 @@ fn binding(
     actions.bind::<Rotate>().to((
         // You can attach modifiers to individual inputs as well.
         Input::mouse_motion().with_modifiers((Scale::splat(0.1), Negate::all())),
-        Axial::right_stick().with_modifiers_each((Scale::splat(2.0), Negate::x())),
+        Axial::right_stick().with_modifiers_each((Scale::splat(1.0), Negate::x())),
     ));
 
     actions.bind::<CaptureCursor>().to(MouseButton::Left);

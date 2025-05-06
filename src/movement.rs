@@ -9,13 +9,13 @@ use kcc_prototype::move_and_slide::{MoveAndSlideConfig, character_sweep, move_an
 
 use crate::input::{DefaultContext, Jump, Move};
 
-const EXAMPLE_MOVEMENT_SPEED: f32 = 22.0;
-const EXAMPLE_FLOOR_ACCELERATION: f32 = 100.0;
-const EXAMPLE_AIR_ACCELERATION: f32 = 40.0;
-const EXAMPLE_FRICTION: f32 = 200.0;
+const EXAMPLE_MOVEMENT_SPEED: f32 = 8.0;
+const EXAMPLE_FLOOR_ACCELERATION: f32 = 10.0;
+const EXAMPLE_AIR_ACCELERATION: f32 = 3.0;
+const EXAMPLE_FRICTION: f32 = 12.0;
 const EXAMPLE_WALKABLE_ANGLE: f32 = PI / 4.0;
 const EXAMPLE_JUMP_IMPULSE: f32 = 6.0;
-const EXAMPLE_GRAVITY: f32 = 20.0; // realistic earth gravity tend to feel wrong for games
+const EXAMPLE_GRAVITY: f32 = 16.0; // realistic earth gravity tend to feel wrong for games
 const EXAMPLE_CHARACTER_HEIGHT: f32 = 1.0;
 const EXAMPLE_CHARACTER_RADIUS: f32 = 0.35;
 const EXAMPLE_GROUND_CHECK_DISTANCE: f32 = 0.2;
@@ -69,8 +69,7 @@ fn movement(
         let action_state = q_input.action::<Jump>().state();
         if action_state == ActionState::Fired || action_state == ActionState::Ongoing {
             if character.floor.is_some() {
-                let impulse = character.up * EXAMPLE_JUMP_IMPULSE;
-                character.velocity += impulse;
+                character.velocity.y = EXAMPLE_JUMP_IMPULSE;
                 character.floor = None;
                 jumped = true;
             }
@@ -85,23 +84,16 @@ fn movement(
 
         let max_acceleration = match character.floor {
             Some(floor_normal) => {
-                apply_friction(&mut character.velocity, EXAMPLE_FRICTION, time.delta_secs());
-
-                // Make sure velocity is never towards the floor since this makes the jump height inconsistent
-                let downward_vel = character.velocity.dot(*floor_normal).min(0.0);
-                character.velocity -= floor_normal * downward_vel;
-
-                // Project input direction on the floor normal to allow walking down slopes
-                // TODO: this is wrong, walking diagonally up/down slopes will be slightly off direction wise,
-                // even more so for steep slopes.
-                // direction = direction
-                //     .reject_from_normalized(*floor_normal)
-                //     .normalize_or_zero();
-
+                // Apply friction to the full velocity
+                character.velocity = apply_friction(
+                    character.velocity,  
+                    character.velocity.length(), 
+                    EXAMPLE_FRICTION, 
+                    time.delta_secs()
+                );
                 EXAMPLE_FLOOR_ACCELERATION
             }
             None => {
-
                 // Apply gravity when not grounded
                 let gravity = character.up * -EXAMPLE_GRAVITY * time.delta_secs();
                 character.velocity += gravity;
@@ -110,13 +102,13 @@ fn movement(
             }
         };
 
-
         // accelerate in the movement direction
-        accelerate(
-            &mut character.velocity,
+        let current_speed = character.velocity.dot(direction);
+        character.velocity += accelerate(
             direction,
-            max_acceleration,
             EXAMPLE_MOVEMENT_SPEED,
+            current_speed,
+            max_acceleration,
             time.delta_secs(),
         );
 
@@ -138,8 +130,8 @@ fn movement(
             slope_angle < EXAMPLE_WALKABLE_ANGLE
         };
 
-        let mut floor = None;
-        let is_grounded = character.floor.is_some();
+        let mut floor: Option<Dir3> = None;
+
         move_and_slide(
             &spatial_query,
             collider,
@@ -151,21 +143,17 @@ fn movement(
             time.delta_secs(),
             |hit| {
                 if is_walkable(hit.raw_hit) {
-                    // Only check downward velocity for initial ground detection
-                    if !is_grounded && hit.out_velocity.y <= 0.0 {
-                        floor = Some(Dir3::new(hit.raw_hit.normal1).unwrap_or(Dir3::Y));
-                    }
+                    floor = Some(Dir3::new(hit.raw_hit.normal1).unwrap_or(Dir3::Y));
                 }
             },
         );
 
-        // Check for ground if we're not jumping
-        if !jumped && character.floor.is_none() && character.velocity.y <= 0.0 {
+        if !jumped {
             let ground_collider = Collider::cylinder(
                 EXAMPLE_CHARACTER_RADIUS,
                 EXAMPLE_CHARACTER_HEIGHT
             );
-            if let Some((safe_movement_distance, hit)) = character_sweep(
+            if let Some((_safe_movement_distance, hit)) = character_sweep(
                 &ground_collider,
                 config.epsilon,
                 transform.translation,
@@ -176,7 +164,6 @@ fn movement(
                 &filter,
             ) {
                 if is_walkable(hit) {
-                    transform.translation.y -= (safe_movement_distance - config.skin_width).max(0.0);
                     floor = Some(Dir3::new(hit.normal1).unwrap_or(Dir3::Y));
                 }
             }
@@ -186,45 +173,43 @@ fn movement(
     }
 }
 
-/// This is a simple example inspired by Quake, users are expected to bring their own logic for acceleration.
+/// This is a simple example inspired by Quake 3, users are expected to bring their own logic for acceleration.
 fn accelerate(
-    velocity: &mut Vec3,
-    direction: impl TryInto<Dir3>,
-    max_acceleration: f32,
-    target_speed: f32,
-    delta: f32,
-) {
-    let Ok(direction) = direction.try_into() else {
-        return;
-    };
+    wish_direction: Vec3,
+    wish_speed: f32,
+    current_speed: f32,
+    accel: f32,
+    delta_seconds: f32,
+) -> Vec3 {
+    let add_speed = wish_speed - current_speed;
 
-    // Current speed in the desired direction.
-    let current_speed = velocity.dot(*direction);
-
-    // No acceleration is needed if current speed exceeds target.
-    if current_speed >= target_speed {
-        return;
+    if add_speed <= 0.0 {
+        return Vec3::ZERO;
     }
 
-    // Clamp to avoid acceleration past the target speed.
-    let accel_speed = f32::min(target_speed - current_speed, max_acceleration * delta);
+    let mut accel_speed = accel * delta_seconds * wish_speed;
+    if accel_speed > add_speed {
+        accel_speed = add_speed;
+    }
 
-    *velocity += accel_speed * direction;
+    wish_direction * accel_speed
 }
 
-/// Constant acceleration in the opposite direction of velocity.
-pub fn apply_friction(velocity: &mut Vec3, friction: f32, delta: f32) {
-    let speed = velocity.length();
+// Also from Quake 3
+fn apply_friction(velocity: Vec3, current_speed: f32, drag: f32, delta_seconds: f32) -> Vec3 {
+    let mut new_speed;
+    let mut drop = 0.0;
 
-    if speed < 1e-4 {
-        return;
+    drop += current_speed * drag * delta_seconds;
+
+    new_speed = current_speed - drop;
+    if new_speed < 0.0 {
+        new_speed = 0.0;
     }
 
-    // Simple linear friction that's independent of speed
-    let friction_force = friction * delta;
-    if friction_force >= speed {
-        *velocity = Vec3::ZERO;
-    } else {
-        *velocity *= (speed - friction_force) / speed;
+    if new_speed != 0.0 {
+        new_speed /= current_speed;
     }
+
+    velocity * new_speed
 }

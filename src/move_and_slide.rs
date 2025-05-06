@@ -152,7 +152,7 @@ fn solve_collision_planes(
         return velocity;
     }
 
-    let initial_velocity = velocity.reject_from_normalized(first_hit_normal) * 1.001;
+    let initial_velocity = velocity.reject_from_normalized(first_hit_normal);
 
     // Join the original velocity direction as an additional constraining plane
     let original_velocity_normal = original_velocity_direction.normalize_or_zero();
@@ -193,9 +193,10 @@ fn solve_collision_planes(
                 similar_plane(vel_proj_dir, *third_hit_normal)
             });
 
-            // If we are in a corner case we return a zero vector
+            // If we are in a corner case, add a small nudge away from both surfaces
             if is_corner {
-                Err(Vec3::ZERO)
+                let nudge = (first_hit_normal + *second_hit_normal).normalize_or_zero() * 0.01;
+                Err(vel_proj + nudge)
             } else if vel_proj.length_squared() <= f32::EPSILON {
                 // Otherwise we can return the velocity if we have a small enough projection
                 Err(vel_proj)
