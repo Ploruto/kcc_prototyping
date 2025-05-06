@@ -91,16 +91,19 @@ fn movement(
             }
         }
 
-        // Get the raw 2D input vector
         let input_vec = actions.action::<input::Move>().value().as_axis2d();
-
-        // Rotate the movement direction vector by the camera's yaw
-        let direction =
-            (main_camera_transform.rotation * Vec3::new(input_vec.x, 0.0, -input_vec.y)).normalize_or_zero();
-
+        
+        // Get camera's forward and right vectors (ignoring Y component)
+        let forward = main_camera_transform.forward();
+        let right = main_camera_transform.right();
+        let forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
+        let right = Vec3::new(right.x, 0.0, right.z).normalize_or_zero();
+        
+        // Combine input with camera vectors
+        let direction = (forward * input_vec.y + right * input_vec.x).normalize_or_zero();
+        
         let max_acceleration = match character.floor {
-            Some(floor_normal) => {
-                // Apply friction to the full velocity
+            Some(_floor_normal) => {
                 character.velocity = apply_friction(
                     character.velocity,  
                     character.velocity.length(), 

@@ -103,8 +103,6 @@ pub fn move_and_slide(
         ) else {
             // No collision, move the full remaining distance
             translation += velocity * remaining_time;
-            // When we leave a surface, preserve the velocity
-            velocity = velocity;
             break;
         };
 

@@ -9,7 +9,7 @@ pub struct FpsCameraPlugin;
 impl Plugin for FpsCameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(look)
-            .add_systems(FixedPostUpdate, follow_target);
+            .add_systems(PostUpdate, follow_target);
     }
 }
 
