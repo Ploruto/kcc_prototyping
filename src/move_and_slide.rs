@@ -29,8 +29,7 @@ pub fn character_sweep(
     )?;
 
     // How far is safe to translate by
-    //let safe_distance = (hit.distance - epsilon).max(0.0);
-    let safe_distance = hit.distance;
+    let safe_distance = (hit.distance - epsilon).max(0.0);
     Some((safe_distance, hit))
 }
 
