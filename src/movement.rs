@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 
 use avian3d::prelude::{
     Collider, CollisionLayers, RigidBody, Sensor, ShapeHitData, SpatialQuery, SpatialQueryFilter,
@@ -9,23 +9,35 @@ use kcc_prototype::move_and_slide::{MoveAndSlideConfig, character_sweep, move_an
 
 use crate::input::{DefaultContext, Jump, Move};
 
+const EXAMPLE_MOVEMENT_SPEED: f32 = 8.0;
+const EXAMPLE_FLOOR_ACCELERATION: f32 = 100.0;
+const EXAMPLE_AIR_ACCELERATION: f32 = 40.0;
+const EXAMPLE_FRICTION: f32 = 60.0;
+const EXAMPLE_WALKABLE_ANGLE: f32 = PI / 4.0;
+const EXAMPLE_JUMP_IMPULSE: f32 = 6.0;
+const EXAMPLE_GRAVITY: f32 = 20.0; // realistic earth gravity tend to feel wrong for games
+const EXAMPLE_CHARACTER_HEIGHT: f32 = 1.0;
+const EXAMPLE_CHARACTER_RADIUS: f32 = 0.35;
+const EXAMPLE_GROUND_MARGIN: f32 = 0.1;
+
 pub struct KCCPlugin;
 
 impl Plugin for KCCPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, movement);
+        app.add_systems(Update, movement);
     }
 }
 
 #[derive(Component)]
 #[require(
     RigidBody = RigidBody::Kinematic,
-    Collider = Capsule3d::new(0.35, 1.0),
+    Collider = Capsule3d::new(EXAMPLE_CHARACTER_RADIUS, EXAMPLE_CHARACTER_HEIGHT),
 )]
 pub struct Character {
     velocity: Vec3,
     floor: Option<Dir3>,
     up: Dir3,
+    jump_timer: Duration,
 }
 
 impl Default for Character {
@@ -34,17 +46,10 @@ impl Default for Character {
             velocity: Vec3::ZERO,
             floor: None,
             up: Dir3::Y,
+            jump_timer: Duration::ZERO,
         }
     }
 }
-
-const EXAMPLE_MOVEMENT_SPEED: f32 = 8.0;
-const EXAMPLE_FLOOR_ACCELERATION: f32 = 100.0;
-const EXAMPLE_AIR_ACCELERATION: f32 = 40.0;
-const EXAMPLE_FRICTION: f32 = 60.0;
-const EXAMPLE_WALKABLE_ANGLE: f32 = PI / 4.0;
-const EXAMPLE_JUMP_IMPULSE: f32 = 6.0;
-const EXAMPLE_GRAVITY: f32 = 20.0; // realistic earth gravity tend to feel wrong for games
 
 fn movement(
     mut q_kcc: Query<(
@@ -60,11 +65,16 @@ fn movement(
     spatial_query: SpatialQuery,
 ) {
     for (entity, mut transform, mut character, collider, layers) in &mut q_kcc {
-        if q_input.action::<Jump>().state() == ActionState::Fired {
+
+        let mut jumped = false;
+        let action_state = q_input.action::<Jump>().state();
+        if action_state == ActionState::Fired || action_state == ActionState::Ongoing {
             if character.floor.is_some() {
                 let impulse = character.up * EXAMPLE_JUMP_IMPULSE;
                 character.velocity += impulse;
                 character.floor = None;
+                character.jump_timer = Duration::from_millis(20);
+                jumped = true;
             }
         }
 
@@ -80,15 +90,15 @@ fn movement(
                 apply_friction(&mut character.velocity, EXAMPLE_FRICTION, time.delta_secs());
 
                 // Make sure velocity is never towards the floor since this makes the jump height inconsistent
-                let downward_vel = character.velocity.dot(*floor_normal).min(0.0);
-                character.velocity -= floor_normal * downward_vel;
+                // let downward_vel = character.velocity.dot(*floor_normal).min(0.0);
+                // character.velocity -= floor_normal * downward_vel;
 
                 // Project input direction on the floor normal to allow walking down slopes
                 // TODO: this is wrong, walking diagonally up/down slopes will be slightly off direction wise,
                 // even more so for steep slopes.
-                direction = direction
-                    .reject_from_normalized(*floor_normal)
-                    .normalize_or_zero();
+                // direction = direction
+                //     .reject_from_normalized(*floor_normal)
+                //     .normalize_or_zero();
 
                 EXAMPLE_FLOOR_ACCELERATION
             }
@@ -131,7 +141,6 @@ fn movement(
         };
 
         let mut floor = None;
-
         move_and_slide(
             &spatial_query,
             collider,
@@ -142,30 +151,43 @@ fn movement(
             &filter,
             time.delta_secs(),
             |hit| {
-                if is_walkable(hit) {
-                    floor = Some(Dir3::new(hit.normal1).unwrap());
+                if is_walkable(hit.raw_hit)
+                    // Must also be moving downwards (is this correct?)
+                    && hit.out_velocity.y <= 0.0
+                {
+                    floor = Some(Dir3::new(hit.raw_hit.normal1).unwrap_or(Dir3::Y));
                 }
             },
         );
 
-        // Check for floor when previously on the floor and no floor was found during move and slide
-        // to avoid rapid changes to the grounded state
-        if character.floor.is_some() && floor.is_none() {
-            if let Some((movement, hit)) = character_sweep(
-                collider,
+        // Check for ground if we're not jumping
+        // And only check ground if we're moving downwards
+        if !jumped && character.velocity.y <= 0.0 {
+            let ground_collider = Collider::cylinder(
+                EXAMPLE_CHARACTER_RADIUS - 0.01, 
+                EXAMPLE_CHARACTER_HEIGHT + EXAMPLE_CHARACTER_RADIUS * 2.0
+            );
+            if let Some((safe_movement_distance, hit)) = character_sweep(
+                &ground_collider,
                 config.epsilon,
-                transform.translation,
+                transform.translation - Vec3::new(0.0, EXAMPLE_GROUND_MARGIN, 0.0),
                 -character.up,
-                10.0, // arbitrary trace distance
+                EXAMPLE_GROUND_MARGIN + config.epsilon,
                 rotation,
                 &spatial_query,
                 &filter,
             ) {
                 if is_walkable(hit) {
-                    transform.translation -= character.up * movement; // also snap to the floor
-                    floor = Some(Dir3::new(hit.normal1).unwrap());
+                    transform.translation.y -= safe_movement_distance;
+                    //transform.translation.y = hit.point1.y + (EXAMPLE_CHARACTER_HEIGHT * 0.5 + EXAMPLE_CHARACTER_RADIUS * 0.5) + EXAMPLE_GROUND_MARGIN;
+                    floor = Some(Dir3::new(hit.normal1).unwrap_or(Dir3::Y));
                 }
             }
+        }
+
+        // Update jump timer
+        if !character.jump_timer.is_zero() {
+            character.jump_timer = character.jump_timer.saturating_sub(time.delta());
         }
 
         character.floor = floor;

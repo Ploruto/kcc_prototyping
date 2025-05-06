@@ -8,7 +8,7 @@ pub fn character_sweep(
     epsilon: f32,
     origin: Vec3,
     direction: Dir3,
-    max_distance: f32,
+    distance: f32,
     rotation: Quat,
     spatial_query: &SpatialQuery,
     filter: &SpatialQueryFilter,
@@ -19,9 +19,10 @@ pub fn character_sweep(
         rotation,
         direction,
         &ShapeCastConfig {
-            max_distance: max_distance + epsilon, // extend the trace slightly
-            target_distance: epsilon, // I'm not sure what this does but I think this is correct ;)
+            max_distance: distance,
+            target_distance: 0.0,
             ignore_origin_penetration: true,
+            compute_contact_on_penetration: true,
             ..Default::default()
         },
         filter,
@@ -37,6 +38,7 @@ pub fn character_sweep(
 #[derive(Clone, Copy)]
 pub struct MoveAndSlideConfig {
     pub max_iterations: usize,
+    pub skin_width: f32,
     pub epsilon: f32,
 }
 
@@ -44,9 +46,18 @@ impl Default for MoveAndSlideConfig {
     fn default() -> Self {
         Self {
             max_iterations: 4,
-            epsilon: 0.01,
+            skin_width: 0.01,
+            epsilon: 0.0001,
         }
     }
+}
+
+pub struct MoveAndSlideHit<'a> {
+    pub raw_hit: ShapeHitData,
+    pub remaining_time: f32,
+    pub safe_movement_distance: f32,
+    pub out_velocity: &'a mut Vec3,
+    pub out_translation: &'a mut Vec3,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -59,46 +70,49 @@ pub fn move_and_slide(
     config: MoveAndSlideConfig,
     filter: &SpatialQueryFilter,
     delta_time: f32,
-    mut on_hit: impl FnMut(ShapeHitData),
+    mut on_hit: impl FnMut(&mut MoveAndSlideHit),
 ) {
     let Ok(original_direction) = Dir3::new(*velocity) else {
         return;
     };
 
     let mut remaining_time = delta_time;
-
     let mut hits = Vec::with_capacity(config.max_iterations);
-
+    
     for _ in 0..config.max_iterations {
-        let Ok((direction, max_distance)) = Dir3::new_and_length(*velocity * remaining_time) else {
-            break;
-        };
+        let max_distance = velocity.length() * remaining_time;
+        let direction = velocity.normalize_or_zero();
 
         let Some((safe_movement, hit)) = character_sweep(
             collider,
             config.epsilon,
             *translation,
-            direction,
-            max_distance,
+            Dir3::new(direction).unwrap_or(Dir3::Y),
+            max_distance + config.skin_width,
             rotation,
             spatial_query,
             filter,
         ) else {
             // No collision, move the full remaining distance
-            *translation += direction * max_distance;
+            *translation += *velocity * remaining_time;
             break;
         };
 
-        // Trigger callbacks
-        on_hit(hit);
+        // Check if we're hitting the same plane multiple times
+        if hits.iter().any(|&n| similar_plane(n, hit.normal1)) {
+            // Nudge velocity along the normal to prevent sticking
+            *velocity += hit.normal1 * config.skin_width;
+        }
+
+        on_hit(&mut MoveAndSlideHit {
+            raw_hit: hit,
+            remaining_time,
+            safe_movement_distance: safe_movement,
+            out_velocity: velocity,
+            out_translation: translation,
+        });
 
         hits.push(hit.normal1);
-
-        // Progress time by the movement amount
-        remaining_time *= 1.0 - safe_movement / max_distance;
-
-        // Move the transform to just before the point of collision
-        *translation += direction * safe_movement;
 
         // Project velocity and remaining motion onto the surface plane
         *velocity = solve_collision_planes(*velocity, &hits, *original_direction);
@@ -107,6 +121,16 @@ pub fn move_and_slide(
         if velocity.dot(*original_direction) <= 0.0 {
             break;
         }
+
+        // Calculate movement and remaining time
+        let movement_distance = (safe_movement - config.skin_width).max(0.0);
+        let movement_ratio = if max_distance > 0.0 {
+            (movement_distance / max_distance).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        remaining_time *= (1.0 - movement_ratio);
+        *translation += direction * movement_distance;
     }
 }
 

@@ -23,7 +23,7 @@ fn main() {
         DefaultPlugins,
         InputPlugin,
         PhysicsPlugins::default(),
-        PhysicsDebugPlugin::default(),
+        //PhysicsDebugPlugin::default(),
         LevelGeneratorPlugin,
         KCCPlugin,
     ));
@@ -34,7 +34,7 @@ fn main() {
 
 fn setup(mut commands: Commands) {
     commands.spawn((
-        Transform::from_xyz(0.0, 10.5, 0.0),
+        Transform::from_xyz(0.0, 20.0, 0.0),
         Actions::<DefaultContext>::default(),
         Character::default(),
         children![(
@@ -58,7 +58,7 @@ fn setup(mut commands: Commands) {
     // Sun
     commands.spawn((
         DirectionalLight {
-            shadows_enabled: true,
+            shadows_enabled: false,
             illuminance: lux::RAW_SUNLIGHT,
             ..default()
         },
