@@ -1,123 +1,247 @@
-use bevy::{prelude::*, window::CursorGrabMode};
+use bevy::math::FloatPow;
+use bevy::prelude::*;
+use bevy::time::Virtual;
+use bevy::window::{CursorGrabMode, Window};
 use bevy_enhanced_input::prelude::*;
 
-use crate::{DefaultCamera, movement::Character};
+// --- General Actions (Likely used across contexts) ---
 
-pub(crate) struct InputPlugin;
+#[derive(Debug, Clone, Copy, InputAction)]
+#[input_action(output = Vec2)]
+pub struct Move; // Player/Character movement
 
-impl Plugin for InputPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins(EnhancedInputPlugin);
-        app.add_input_context::<DefaultContext>();
-        app.add_observer(binding);
-        app.add_observer(rotate);
-        app.add_observer(capture_cursor);
-        app.add_observer(release_cursor);
-    }
-}
+#[derive(Debug, Clone, Copy, InputAction)]
+#[input_action(output = Vec2)]
+pub struct Look; // Camera look/rotation
 
-#[derive(Debug, InputAction)]
+#[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
 pub struct Jump;
 
-#[derive(Debug, InputAction)]
-#[input_action(output = Vec2)]
-pub struct Move;
-
-#[derive(Debug, InputAction)]
+#[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
 pub struct CaptureCursor;
 
-#[derive(Debug, InputAction)]
+#[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
 pub struct ReleaseCursor;
 
-#[derive(Debug, InputAction)]
-#[input_action(output = Vec2)]
-pub struct Rotate;
+#[derive(Debug, Clone, Copy, InputAction)]
+#[input_action(output = bool)]
+pub struct ToggleCameraMode;
 
-#[derive(InputContext)]
+// --- Fly Camera Specific Actions ---
+
+#[derive(Debug, Clone, Copy, InputAction)]
+#[input_action(output = bool)]
+pub struct FlyVerticalMoveUp;
+
+#[derive(Debug, Clone, Copy, InputAction)]
+#[input_action(output = bool)]
+pub struct FlyVerticalMoveDown;
+
+// --- Orbit Camera Specific Actions  ---
+#[derive(Debug, Clone, Copy, InputAction)]
+#[input_action(output = Vec2)]
+pub struct OrbitZoom;
+
+// --- Input Contexts ---
+
+/// Default context, primarily for FPS controls and global actions.
+#[derive(InputContext, Default)]
 pub struct DefaultContext;
 
-// To define bindings for actions, write an observer for `Binding`.
-// It's also possible to create bindings before the insertion,
-// but this way you can conveniently reload bindings when settings change.
-fn binding(
-    trigger: Trigger<Binding<DefaultContext>>,
+/// Context for Fly Camera specific controls.
+#[derive(InputContext, Default)]
+pub struct FlyCameraContext;
+
+/// Context for Orbit Camera specific controls.
+#[derive(InputContext, Default)]
+pub struct OrbitCameraContext;
+
+// --- Plugin Setup ---
+
+pub struct InputPlugin;
+
+impl Plugin for InputPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(EnhancedInputPlugin)
+            // Register contexts
+            .add_input_context::<DefaultContext>()
+            .add_input_context::<FlyCameraContext>()
+            .add_input_context::<OrbitCameraContext>()
+            // Add binding systems triggered when the corresponding Actions component is added
+            .add_observer(bind_default_context_actions)
+            .add_observer(bind_fly_camera_actions)
+            .add_observer(bind_orbit_camera_actions)
+            // Add action handlers
+            .add_observer(capture_cursor)
+            .add_observer(release_cursor);
+    }
+}
+
+// --- Binding Systems ---
+
+/// Binds actions for the DefaultContext (FPS, Global)
+/// Triggered when Actions<DefaultContext> is added to an entity.
+fn bind_default_context_actions(
+    trigger: Trigger<OnAdd, Actions<DefaultContext>>,
     mut players: Query<&mut Actions<DefaultContext>>,
 ) {
-    let mut actions = players.get_mut(trigger.target()).unwrap();
+    // Get the action map for the entity the component was added to
+    if let Ok(mut actions) = players.get_mut(trigger.target()) {
+        info!(
+            "Binding DefaultContext actions for entity {:?}",
+            trigger.target()
+        );
+        // --- Player Movement & Interaction ---
+        actions
+            .bind::<Move>()
+            .to((Cardinal::wasd_keys(), Axial::left_stick()))
+            .with_modifiers(DeadZone::default()); // Keep existing modifiers if needed
 
-    // Bindings like WASD or sticks are very common,
-    // so we provide built-ins to assign all keys/axes at once.
-    // We don't assign any conditions and in this case the action will
-    // be triggered with any non-zero value.
-    // An action can have multiple inputs bound to it
-    // and will respond to any of them.
-    actions
-        .bind::<Move>()
-        .to((Cardinal::wasd_keys(), Axial::left_stick()));
-    // .with_modifiers((
-    //     DeadZone::default(), // Apply non-uniform normalization to ensure consistent speed, otherwise diagonal movement will be faster.
-    //     SmoothNudge::default(), // Make movement smooth and independent of the framerate. To only make it framerate-independent, use `DeltaScale`.
-    //     Scale::splat(0.3), // Additionally multiply by a constant to achieve the desired speed.
-    // ));
+        actions.bind::<CaptureCursor>().to(MouseButton::Left);
+        actions.bind::<ReleaseCursor>().to(KeyCode::Escape);
 
-    actions.bind::<Rotate>().to((
-        // You can attach modifiers to individual inputs as well.
-        Input::mouse_motion().with_modifiers((Scale::splat(0.1), Negate::all())),
-        Axial::right_stick().with_modifiers_each((Scale::splat(1.0), Negate::x())),
-    ));
+        actions
+            .bind::<Jump>()
+            .to((KeyCode::Space, GamepadButton::East))
+            .with_conditions(JustPress::default());
 
-    actions.bind::<CaptureCursor>().to(MouseButton::Left);
-    actions.bind::<ReleaseCursor>().to(KeyCode::Escape);
+        // --- Camera Look (Used by FPS, potentially others if not overridden) ---
+        actions
+            .bind::<Look>()
+            .to((
+                Input::mouse_motion().with_modifiers((Scale::splat(0.05), Negate::all())),
+                Axial::right_stick().with_modifiers_each(Negate::x()),
+            ))
+            .with_modifiers(AtLeast(0.2));
 
-    actions
-        .bind::<Jump>()
-        .to(KeyCode::Space)
-        .with_conditions(JustPress::default());
+        // --- Global Actions ---
+        actions
+            .bind::<ToggleCameraMode>()
+            .to((KeyCode::F1, GamepadButton::DPadUp))
+            .with_conditions(JustPress::default());
+    } else {
+        warn!(
+            "Failed to get Actions<DefaultContext> for entity {:?} during binding",
+            trigger.target()
+        );
+    }
 }
 
-fn rotate(
-    trigger: Trigger<Fired<Rotate>>,
-    mut cameras: Query<&mut Transform, (With<DefaultCamera>)>,
-    mut players: Query<&mut Transform, (With<Character>, Without<DefaultCamera>)>,
-    time: Res<Time>,
+/// Binds actions specific to the FlyCameraContext.
+/// Triggered when Actions<FlyCameraContext> is added to an entity.
+fn bind_fly_camera_actions(
+    trigger: Trigger<OnAdd, Actions<FlyCameraContext>>,
+    mut players: Query<&mut Actions<FlyCameraContext>>,
 ) {
-    // Delta
-    let delta_time = time.delta_secs_f64() as f32;
-    let mouse_delta = trigger.value * delta_time;
+    if let Ok(mut actions) = players.get_mut(trigger.target()) {
+        info!(
+            "Binding FlyCameraContext actions for entity {:?}",
+            trigger.target()
+        );
+        // Bind vertical movement for FlyCam
+        actions
+            .bind::<FlyVerticalMoveUp>()
+            .to((KeyCode::ShiftLeft, GamepadButton::East));
 
-    // Get the player transform
-    let mut player_transform = players.get_mut(trigger.target()).unwrap();
-
-    // Update player rotation (yaw only)
-    let player_rotation = player_transform.rotation;
-    let (player_yaw, _, _) = player_rotation.to_euler(EulerRot::YXZ);
-    let new_player_yaw = player_yaw + mouse_delta.x;
-    player_transform.rotation = Quat::from_rotation_y(new_player_yaw);
-
-    // Get the camera transform
-    let Some(mut camera_transform) = cameras.single_mut().ok() else {
-        warn!("No camera found for rotation. Skipping camera rotation.");
-        return;
-    };
-
-    // Since camera is a child, we only need to handle pitch
-    let (_, cam_pitch, _) = camera_transform.rotation.to_euler(EulerRot::YXZ);
-
-    // Update pitch (clamped)
-    let new_cam_pitch = (cam_pitch + mouse_delta.y).clamp(-1.54, 1.54);
-
-    camera_transform.rotation = Quat::from_euler(EulerRot::YXZ, 0.0, new_cam_pitch, 0.0);
+        actions
+            .bind::<FlyVerticalMoveDown>()
+            .to((KeyCode::ControlLeft, GamepadButton::LeftThumb));
+    } else {
+        warn!(
+            "Failed to get Actions<FlyCameraContext> for entity {:?} during binding",
+            trigger.target()
+        );
+    }
 }
 
-fn capture_cursor(_trigger: Trigger<Completed<CaptureCursor>>, mut window: Single<&mut Window>) {
-    window.cursor_options.grab_mode = CursorGrabMode::Confined;
-    window.cursor_options.visible = false;
+/// Binds actions specific to the OrbitCameraContext.
+/// Triggered when Actions<OrbitCameraContext> is added to an entity.
+fn bind_orbit_camera_actions(
+    trigger: Trigger<OnAdd, Actions<OrbitCameraContext>>,
+    mut players: Query<&mut Actions<OrbitCameraContext>>,
+) {
+    if let Ok(mut actions) = players.get_mut(trigger.target()) {
+        info!(
+            "Binding OrbitCameraContext actions for entity {:?}",
+            trigger.target()
+        );
+        actions.bind::<OrbitZoom>().to(Input::mouse_wheel());
+    } else {
+        warn!(
+            "Failed to get Actions<OrbitCameraContext> for entity {:?} during binding",
+            trigger.target()
+        );
+    }
 }
 
-fn release_cursor(_trigger: Trigger<Completed<ReleaseCursor>>, mut window: Single<&mut Window>) {
-    window.cursor_options.grab_mode = CursorGrabMode::None;
-    window.cursor_options.visible = true;
+// --- Action Handlers ---
+
+fn capture_cursor(
+    _trigger: Trigger<Completed<CaptureCursor>>, // Triggered by DefaultContext action
+    mut windows: Query<&mut Window>, // Use Query instead of Single if multiple windows possible
+) {
+    if let Ok(mut window) = windows.get_single_mut() {
+        window.cursor_options.grab_mode = CursorGrabMode::Confined;
+        window.cursor_options.visible = false;
+    }
+}
+
+fn release_cursor(
+    _trigger: Trigger<Completed<ReleaseCursor>>, // Triggered by DefaultContext action
+    mut windows: Query<&mut Window>,
+) {
+    if let Ok(mut window) = windows.get_single_mut() {
+        window.cursor_options.grab_mode = CursorGrabMode::None;
+        window.cursor_options.visible = true;
+    }
+}
+
+// Helper
+// InputModifier that sets the value of an input to 0.0 if a threshold is not reached
+// Used to prevent stick drift in (Nintendo) controllers
+#[derive(Debug)]
+struct AtLeast(pub f32);
+
+impl Default for AtLeast {
+    fn default() -> Self {
+        Self(0.2)
+    }
+}
+
+impl InputModifier for AtLeast {
+    fn apply(
+        &mut self,
+        _: &bevy_enhanced_input::action_map::ActionMap,
+        _: &Time<Virtual>,
+        value: ActionValue,
+    ) -> ActionValue {
+        // TODO: don't do this
+        match value {
+            ActionValue::Bool(bool) => ActionValue::Bool(bool),
+            ActionValue::Axis1D(vec1) => {
+                if vec1 < self.0 {
+                    ActionValue::Axis1D(0.0)
+                } else {
+                    ActionValue::Axis1D(vec1)
+                }
+            }
+            ActionValue::Axis2D(vec2) => {
+                if vec2.length_squared() < self.0.squared() {
+                    ActionValue::Axis2D(Vec2::splat(0.0))
+                } else {
+                    ActionValue::Axis2D(vec2)
+                }
+            }
+            ActionValue::Axis3D(vec3) => {
+                if vec3.length_squared() < self.0.squared() {
+                    ActionValue::Axis3D(Vec3::splat(0.0))
+                } else {
+                    ActionValue::Axis3D(vec3)
+                }
+            }
+        }
+    }
 }

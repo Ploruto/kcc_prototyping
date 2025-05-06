@@ -5,41 +5,36 @@ use bevy::{
     render::camera::Exposure,
 };
 use bevy_enhanced_input::prelude::Actions;
-use input::{DefaultContext, InputPlugin};
-use level::LevelGeneratorPlugin;
-use movement::{Character, KCCPlugin};
+use kcc_prototype::{
+    camera::{CameraPlugin, MainCamera, TargetOf},
+    input::{DefaultContext, InputPlugin},
+    level::LevelGeneratorPlugin,
+    movement::{Character, KCCPlugin},
+};
 
-mod input;
-mod level;
-
-mod movement;
-
-#[derive(Component)]
-struct DefaultCamera;
-
-fn main() {
-    let mut app = App::new();
-    app.add_plugins((
-        DefaultPlugins,
-        InputPlugin,
-        PhysicsPlugins::default(),
-        //PhysicsDebugPlugin::default(),
-        LevelGeneratorPlugin,
-        KCCPlugin,
-    ));
-    app.add_systems(Startup, setup);
-
-    app.run();
+fn main() -> AppExit {
+    App::new()
+        .add_plugins((
+            DefaultPlugins,
+            InputPlugin,
+            CameraPlugin,
+            PhysicsPlugins::default(),
+            //PhysicsDebugPlugin::default(),
+            LevelGeneratorPlugin,
+            KCCPlugin,
+        ))
+        .add_systems(Startup, setup)
+        .run()
 }
 
-fn setup(mut commands: Commands) {
-    commands.spawn((
-        Transform::from_xyz(0.0, 20.0, 0.0),
-        Actions::<DefaultContext>::default(),
-        Character::default(),
-        children![(
-            // Camera with Earth's atmosphere
-            Camera3d::default(),
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let main_cam = commands
+        .spawn((
+            MainCamera::default(),
             Camera {
                 hdr: true,
                 ..Default::default()
@@ -50,9 +45,25 @@ fn setup(mut commands: Commands) {
                 fov: 90.0_f32.to_radians(),
                 ..Default::default()
             }),
-            DefaultCamera,
-            Transform::from_xyz(0.0, 0.5, 0.0)
-        )],
+            AmbientLight {
+                brightness: lux::AMBIENT_DAYLIGHT,
+                ..Default::default()
+            },
+            Transform::from_xyz(0.0, 0.5, 0.0),
+        ))
+        .id();
+
+    commands.spawn((
+        Transform::from_xyz(0.0, 10.5, 0.0),
+        Actions::<DefaultContext>::default(),
+        Character::default(),
+        TargetOf(main_cam),
+        Mesh3d(meshes.add(Capsule3d::new(0.35, 1.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::WHITE.with_alpha(0.25),
+            alpha_mode: AlphaMode::Blend,
+            ..Default::default()
+        })),
     ));
 
     // Sun

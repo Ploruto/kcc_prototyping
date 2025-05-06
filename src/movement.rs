@@ -5,9 +5,12 @@ use avian3d::prelude::{
 };
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{ActionState, Actions};
-use kcc_prototype::move_and_slide::{MoveAndSlideConfig, character_sweep, move_and_slide};
 
-use crate::input::{DefaultContext, Jump, Move};
+use crate::{
+    camera::MainCamera,
+    input::{self, DefaultContext, Jump},
+    move_and_slide::{MoveAndSlideConfig, character_sweep, move_and_slide},
+};
 
 const EXAMPLE_MOVEMENT_SPEED: f32 = 8.0;
 const EXAMPLE_FLOOR_ACCELERATION: f32 = 10.0;
@@ -16,7 +19,7 @@ const EXAMPLE_FRICTION: f32 = 12.0;
 const EXAMPLE_WALKABLE_ANGLE: f32 = PI / 4.0;
 const EXAMPLE_JUMP_IMPULSE: f32 = 6.0;
 const EXAMPLE_GRAVITY: f32 = 16.0; // realistic earth gravity tend to feel wrong for games
-const EXAMPLE_CHARACTER_HEIGHT: f32 = 1.0;
+const EXAMPLE_CHARACTER_HEIGHT: f32 = 1.7;
 const EXAMPLE_CHARACTER_RADIUS: f32 = 0.35;
 const EXAMPLE_GROUND_CHECK_DISTANCE: f32 = 0.2;
 
@@ -28,11 +31,18 @@ impl Plugin for KCCPlugin {
     }
 }
 
+// Marker component used to freeze player movement when the main camera is in fly-mode.
+// This shouldn't be strictly necessary if we figure out how to properly layer InputContexts.
+#[derive(Component)]
+pub struct Frozen;
+
+
 #[derive(Component)]
 #[require(
     RigidBody = RigidBody::Kinematic,
     Collider = Cylinder::new(EXAMPLE_CHARACTER_RADIUS, EXAMPLE_CHARACTER_HEIGHT),
 )]
+
 pub struct Character {
     velocity: Vec3,
     floor: Option<Dir3>,
@@ -50,23 +60,29 @@ impl Default for Character {
 }
 
 fn movement(
-    mut q_kcc: Query<(
-        Entity,
-        &mut Transform,
-        &mut Character,
-        &Collider,
-        &CollisionLayers,
-    )>,
-    q_input: Single<&Actions<DefaultContext>>,
+    mut q_kcc: Query<
+        (
+            Entity,
+            &Actions<DefaultContext>,
+            &mut Transform,
+            &mut Character,
+            &Collider,
+            &CollisionLayers,
+        ),
+        Without<Frozen>,
+    >,
+    main_camera: Single<&Transform, (With<MainCamera>, Without<Character>)>,
     sensors: Query<Entity, With<Sensor>>,
     time: Res<Time>,
     spatial_query: SpatialQuery,
 ) {
-    for (entity, mut transform, mut character, collider, layers) in &mut q_kcc {
+    let main_camera_transform = main_camera.into_inner();
+
+    for (entity, actions, mut transform, mut character, collider, layers) in &mut q_kcc {
         let config = MoveAndSlideConfig::default();
 
         let mut jumped = false;
-        let action_state = q_input.action::<Jump>().state();
+        let action_state = actions.action::<Jump>().state();
         if action_state == ActionState::Fired || action_state == ActionState::Ongoing {
             if character.floor.is_some() {
                 character.velocity.y = EXAMPLE_JUMP_IMPULSE;
@@ -76,11 +92,11 @@ fn movement(
         }
 
         // Get the raw 2D input vector
-        let input_vec = q_input.action::<Move>().value().as_axis2d();
+        let input_vec = actions.action::<input::Move>().value().as_axis2d();
 
         // Rotate the movement direction vector by the camera's yaw
         let direction =
-            (transform.rotation * Vec3::new(input_vec.x, 0.0, -input_vec.y)).normalize_or_zero();
+            (main_camera_transform.rotation * Vec3::new(input_vec.x, 0.0, -input_vec.y)).normalize_or_zero();
 
         let max_acceleration = match character.floor {
             Some(floor_normal) => {
@@ -132,11 +148,11 @@ fn movement(
 
         let mut floor: Option<Dir3> = None;
 
-        move_and_slide(
+        if let Some(move_and_slide_result) = move_and_slide(
             &spatial_query,
             collider,
-            &mut transform.translation,
-            &mut character.velocity,
+            transform.translation,
+            character.velocity,
             rotation,
             config,
             &filter,
@@ -146,7 +162,10 @@ fn movement(
                     floor = Some(Dir3::new(hit.raw_hit.normal1).unwrap_or(Dir3::Y));
                 }
             },
-        );
+        ) {
+            transform.translation = move_and_slide_result.new_translation;
+            character.velocity = move_and_slide_result.new_velocity;
+        }
 
         if !jumped {
             let ground_collider = Collider::cylinder(

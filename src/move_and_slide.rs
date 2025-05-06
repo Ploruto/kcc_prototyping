@@ -59,25 +59,34 @@ pub struct MoveAndSlideHit<'a> {
     pub out_translation: &'a mut Vec3,
 }
 
+pub struct MoveAndSlideResult {
+    pub new_translation: Vec3,
+    pub new_velocity: Vec3,
+}
+
+/// Pure function that returns new translation and velocity based on the current translation,
+/// velocity, and rotation.
 #[allow(clippy::too_many_arguments)]
 pub fn move_and_slide(
     spatial_query: &SpatialQuery,
     collider: &Collider,
-    translation: &mut Vec3,
-    velocity: &mut Vec3,
+    translation: Vec3,
+    velocity: Vec3,
     rotation: Quat,
     config: MoveAndSlideConfig,
     filter: &SpatialQueryFilter,
     delta_time: f32,
     mut on_hit: impl FnMut(&mut MoveAndSlideHit),
-) {
-    let Ok(original_direction) = Dir3::new(*velocity) else {
-        return;
+) -> Option<MoveAndSlideResult> {
+    let Ok(original_direction) = Dir3::new(velocity) else {
+        return None;
     };
+    let mut translation = translation;
+    let mut velocity = velocity;
 
     let mut remaining_time = delta_time;
     let mut hits = Vec::with_capacity(config.max_iterations);
-    
+
     for _ in 0..config.max_iterations {
         let max_distance = velocity.length() * remaining_time;
         let direction = velocity.normalize_or_zero();
@@ -85,7 +94,7 @@ pub fn move_and_slide(
         let Some((safe_movement, hit)) = character_sweep(
             collider,
             config.epsilon,
-            *translation,
+            translation,
             Dir3::new(direction).unwrap_or(Dir3::Y),
             max_distance + config.skin_width,
             rotation,
@@ -93,7 +102,9 @@ pub fn move_and_slide(
             filter,
         ) else {
             // No collision, move the full remaining distance
-            *translation += *velocity * remaining_time;
+            translation += velocity * remaining_time;
+            // When we leave a surface, preserve the velocity
+            velocity = velocity;
             break;
         };
 
@@ -101,19 +112,19 @@ pub fn move_and_slide(
             raw_hit: hit,
             remaining_time,
             safe_movement_distance: safe_movement,
-            out_velocity: velocity,
-            out_translation: translation,
+            out_velocity: &mut velocity,
+            out_translation: &mut translation,
         });
 
         hits.push(hit.normal1);
-
-        // Project velocity and remaining motion onto the surface plane
-        *velocity = solve_collision_planes(*velocity, &hits, *original_direction);
 
         // Quake2: "If velocity is against original velocity, stop early to avoid tiny oscilations in sloping corners."
         if velocity.dot(*original_direction) <= 0.0 {
             break;
         }
+
+        // Project velocity and remaining motion onto the surface plane
+        velocity = solve_collision_planes(velocity, &hits, *original_direction);
 
         // Calculate movement and remaining time
         let movement = (safe_movement - config.skin_width).max(0.0);
@@ -123,8 +134,13 @@ pub fn move_and_slide(
             0.0
         };
         remaining_time *= 1.0 - movement_ratio;
-        *translation += direction * movement;
+        translation += direction * movement;
     }
+
+    Some(MoveAndSlideResult {
+        new_translation: translation,
+        new_velocity: velocity,
+    })
 }
 
 fn similar_plane(normal1: Vec3, normal2: Vec3) -> bool {
@@ -179,17 +195,17 @@ fn solve_collision_planes(
             }
         } else {
             // If we have a valid second hit normal, we can calculate the crease direction
-            let crease_dir = first_hit_normal.cross(*second_hit_normal).normalize_or_zero();
+            let crease_dir = first_hit_normal
+                .cross(*second_hit_normal)
+                .normalize_or_zero();
             let vel_proj = vel.project_onto(crease_dir);
             let vel_proj_dir = vel_proj.normalize_or_zero();
 
             // Check if the velocity projection is a corner case
-            // A corner case is when the velocity projection is not similar to either of the hit normals
-            // but is similar to the crease direction formed by the two hit normals.
             let is_corner = all_hits.iter().any(|third_hit_normal| {
-                !similar_plane(first_hit_normal, *third_hit_normal) &&
-                !similar_plane(*second_hit_normal, *third_hit_normal) &&
-                similar_plane(vel_proj_dir, *third_hit_normal)
+                !similar_plane(first_hit_normal, *third_hit_normal)
+                    && !similar_plane(*second_hit_normal, *third_hit_normal)
+                    && similar_plane(vel_proj_dir, *third_hit_normal)
             });
 
             // If we are in a corner case, add a small nudge away from both surfaces
