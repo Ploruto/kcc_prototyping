@@ -66,7 +66,7 @@ pub fn move_and_slide(
     config: MoveAndSlideConfig,
     filter: &SpatialQueryFilter,
     delta_time: f32,
-    mut on_hit: impl FnMut(ShapeHitData),
+    mut on_hit: impl FnMut(ShapeHitData, MoveAndSlideResult),
 ) -> Option<MoveAndSlideResult> {
     let Ok(original_direction) = Dir3::new(velocity) else {
         return None;
@@ -99,9 +99,6 @@ pub fn move_and_slide(
             break;
         };
 
-        // Trigger callbacks
-        on_hit(hit);
-
         hits.push(hit.normal1);
 
         // Progress time by the movement amount
@@ -112,6 +109,14 @@ pub fn move_and_slide(
 
         // Project velocity and remaining motion onto the surface plane
         velocity = solve_collision_planes(velocity, &hits, *original_direction);
+
+        let partial_result = MoveAndSlideResult {
+            new_translation: translation,
+            new_velocity: velocity,
+        };
+
+        // Trigger callbacks
+        on_hit(hit, partial_result);
 
         // Quake2: "If velocity is against original velocity, stop early to avoid tiny oscilations in sloping corners."
         if velocity.dot(*original_direction) <= 0.0 {

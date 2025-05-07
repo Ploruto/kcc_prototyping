@@ -7,6 +7,7 @@ use bevy::{
 use bevy_enhanced_input::prelude::Actions;
 use kcc_prototype::{
     camera::{CameraPlugin, MainCamera, TargetOf},
+    demo_recorder::DemoPlugin,
     input::{DefaultContext, InputPlugin},
     level::LevelGeneratorPlugin,
     movement::{Character, KCCPlugin},
@@ -22,6 +23,7 @@ fn main() -> AppExit {
             PhysicsDebugPlugin::default(),
             LevelGeneratorPlugin,
             KCCPlugin,
+            DemoPlugin,
         ))
         .add_systems(Startup, setup)
         .run()
