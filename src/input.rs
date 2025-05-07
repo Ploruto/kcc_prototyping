@@ -183,7 +183,7 @@ fn capture_cursor(
     _trigger: Trigger<Completed<CaptureCursor>>, // Triggered by DefaultContext action
     mut windows: Query<&mut Window>, // Use Query instead of Single if multiple windows possible
 ) {
-    if let Ok(mut window) = windows.get_single_mut() {
+    if let Ok(mut window) = windows.single_mut() {
         window.cursor_options.grab_mode = CursorGrabMode::Confined;
         window.cursor_options.visible = false;
     }
@@ -193,7 +193,7 @@ fn release_cursor(
     _trigger: Trigger<Completed<ReleaseCursor>>, // Triggered by DefaultContext action
     mut windows: Query<&mut Window>,
 ) {
-    if let Ok(mut window) = windows.get_single_mut() {
+    if let Ok(mut window) = windows.single_mut() {
         window.cursor_options.grab_mode = CursorGrabMode::None;
         window.cursor_options.visible = true;
     }

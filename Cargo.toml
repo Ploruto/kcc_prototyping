@@ -7,6 +7,8 @@ edition = "2024"
 avian3d = { git = "https://github.com/Jondolf/avian.git", rev = "910ab04" }
 bevy = "0.16.0"
 bevy_enhanced_input = "0.11.0"
+ron = "0.8"
+serde = { version = "1", features = ["derive"] }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

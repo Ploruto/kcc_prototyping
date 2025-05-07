@@ -2671,6 +2671,8 @@ dependencies = [
  "avian3d",
  "bevy",
  "bevy_enhanced_input",
+ "ron",
+ "serde",
 ]
 
 [[package]]

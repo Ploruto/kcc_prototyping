@@ -30,7 +30,11 @@ pub struct Character {
     floor: Option<Dir3>,
     up: Dir3,
 }
-
+impl Character {
+    pub fn get_velocity(&self) -> Vec3 {
+        self.velocity
+    }
+}
 impl Default for Character {
     fn default() -> Self {
         Self {
@@ -156,7 +160,7 @@ fn movement(
             config,
             &filter,
             time.delta_secs(),
-            |hit| {
+            |hit, _| {
                 if is_walkable(hit) {
                     floor = Some(Dir3::new(hit.normal1).unwrap());
                 }
