@@ -42,8 +42,7 @@ fn fly_input(
 
         let mut iter = cameras.iter_many_mut(attachments.iter());
         while let Some((mut transform, speed)) = iter.fetch_next() {
-            let mut direction = transform.rotation * Vec3::new(move_input.x, 0.0, -move_input.y);
-            direction.y += fly_input;
+            let direction = transform.rotation * Vec3::new(move_input.x, fly_input, -move_input.y);
             transform.translation += direction * speed.0 * time.delta_secs();
         }
     }

@@ -109,13 +109,10 @@ fn bind_default_context_actions(
             .with_conditions(JustPress::default());
 
         // --- Camera Look (Used by FPS, potentially others if not overridden) ---
-        actions
-            .bind::<Look>()
-            .to((
-                Input::mouse_motion().with_modifiers((Scale::splat(0.05), Negate::all())),
-                Axial::right_stick().with_modifiers_each(Negate::x()),
-            ))
-            .with_modifiers(AtLeast(0.2));
+        actions.bind::<Look>().to((
+            Input::mouse_motion().with_modifiers((Scale::splat(0.05), Negate::all())),
+            Axial::right_stick().with_modifiers_each((Negate::x(), AtLeast(0.2))),
+        ));
 
         // --- Global Actions ---
 
@@ -177,7 +174,7 @@ fn bind_orbit_camera_actions(
             "Binding OrbitCameraContext actions for entity {:?}",
             trigger.target()
         );
-        actions.bind::<OrbitZoom>().to((Input::mouse_wheel(),));
+        actions.bind::<OrbitZoom>().to(Input::mouse_wheel());
     } else {
         warn!(
             "Failed to get Actions<OrbitCameraContext> for entity {:?} during binding",
