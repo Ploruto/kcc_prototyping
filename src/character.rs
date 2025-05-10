@@ -21,6 +21,36 @@ pub const EXAMPLE_GROUND_CHECK_DISTANCE: f32 = 0.1;
 // functions by accepting a struct instead of a bunch of arguments,
 // that way each can be commented and we can also provide sane defaults, and ordering doesn't matter.
 
+/// Represents the ground a character is currently standing on.
+#[derive(Reflect, Debug, PartialEq, Clone, Copy)]
+pub struct Ground {
+    pub entity: Entity,
+    pub normal: Dir3,
+}
+
+impl Ground {
+    /// Construct a new [`Ground`] if the `normal` is walkable with the given `walkable_angle` and `up` direction.
+    pub fn new_if_walkable(
+        entity: Entity,
+        normal: impl TryInto<Dir3>,
+        up: Dir3,
+        walkable_angle: f32,
+    ) -> Option<Self> {
+        let normal = normal.try_into().ok()?;
+
+        if !is_walkable(*normal, up, walkable_angle) {
+            return None;
+        }
+
+        Some(Self { entity, normal })
+    }
+
+    /// Returns `true` if the [`Ground`] is walkable with the given `walkable_angle` and `up` direction.
+    pub fn is_walkable(&self, up: Dir3, walkable_angle: f32) -> bool {
+        is_walkable(*self.normal, up, walkable_angle)
+    }
+}
+
 /// Checks if a surface is walkable based on its slope angle and the up direction.
 pub fn is_walkable(normal: Vec3, up: Dir3, walkable_angle: f32) -> bool {
     let slope_angle = up.angle_between(normal);
@@ -106,12 +136,10 @@ pub fn try_climb_step(
     Some((new_translation, step_down_hit))
 }
 
-/// Check if the character is grounded and update ground state accordingly
-/// Applies a downward sweep to check for a valid ground.
-/// Returns the new translation after snapping to the ground
+/// Sweep in the opposite direction of `up` and return the [`Ground`] if it's walkable.
 pub fn ground_check(
     collider: &Collider,
-    config: &MoveAndSlideConfig,
+    config: MoveAndSlideConfig,
     translation: Vec3,
     up: Dir3,
     rotation: Quat,
@@ -119,7 +147,7 @@ pub fn ground_check(
     filter: &SpatialQueryFilter,
     floor_check_distance: f32,
     walkable_angle: f32,
-) -> Option<(f32, ShapeHitData)> {
+) -> Option<(f32, Ground)> {
     let (safe_distance, hit) = sweep_check(
         collider,
         config.epsilon,
@@ -131,11 +159,9 @@ pub fn ground_check(
         filter,
     )?;
 
-    if !is_walkable(hit.normal1, up, walkable_angle) {
-        return None;
-    }
+    let ground = Ground::new_if_walkable(hit.entity, hit.normal1, up, walkable_angle)?;
 
-    Some((safe_distance, hit))
+    Some((safe_distance, ground))
 }
 
 /// Projects a vector on a plane normal.
@@ -227,4 +253,31 @@ pub fn project_motion_on_wall(motion: Vec3, normal: impl TryInto<Dir3>, up: Dir3
     horizontal = horizontal.project_onto_normalized(*tangent);
 
     vertical + horizontal
+}
+
+/// Transform a point that's relative to a previous transform to a new transform's space.
+///
+/// Returns the new world-space position of the point.
+pub fn transform_moving_point(
+    point: Vec3,
+    current_transform: &GlobalTransform,
+    previous_transform: &GlobalTransform,
+) -> Vec3 {
+    // Convert world-space point to local space of the previous transform
+    let prev_transform_inverse = previous_transform.compute_matrix().inverse();
+    let point_in_local_space = prev_transform_inverse.transform_point3(point);
+
+    // Convert local space point back to world space using the current transform
+    current_transform
+        .compute_matrix()
+        .transform_point3(point_in_local_space)
+}
+
+/// Get the motion of a moving transform at the given `point`.
+pub fn motion_on_point(
+    point: Vec3,
+    current_transform: &GlobalTransform,
+    previous_transform: &GlobalTransform,
+) -> Vec3 {
+    transform_moving_point(point, current_transform, previous_transform) - point
 }

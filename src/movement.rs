@@ -1,7 +1,10 @@
 use std::f32::consts::PI;
 
-use avian3d::prelude::{
-    Collider, CollisionLayers, RigidBody, Sensor, SpatialQuery, SpatialQueryFilter,
+use avian3d::{
+    prelude::{
+        Collider, CollisionLayers, PhysicsSet, RigidBody, Sensor, SpatialQuery, SpatialQueryFilter,
+    },
+    sync::PreviousGlobalTransform,
 };
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{ActionState, Actions};
@@ -19,8 +22,36 @@ pub struct KCCPlugin;
 
 impl Plugin for KCCPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, movement);
+        app.add_systems(FixedPreUpdate, update_character_filter);
+        app.add_systems(
+            FixedUpdate,
+            (movement, platform_movement.after(PhysicsSet::Sync)),
+        );
         app.add_systems(Update, jump_input);
+    }
+}
+
+/// Cache the [`SpatialQueryFilter`] of the character to avoid re-allocating the excluded entities map every time it's used.
+///
+/// This has to be a seperate component because otherwise the `character` cannot be mutated during a `move_and_slide` loop.
+#[derive(Component, Reflect, Default, Debug)]
+#[reflect(Component)]
+struct CharacterFilter(SpatialQueryFilter);
+
+fn update_character_filter(
+    mut query: Query<(Entity, &mut CharacterFilter, &CollisionLayers)>,
+    sensors: Query<Entity, With<Sensor>>,
+) {
+    for (entity, mut filter, collidion_layers) in &mut query {
+        // Filter out any entities that's not in the character's collision filter
+        filter.0.mask = collidion_layers.filters.into();
+
+        // Filter out all sensor entities along with the character entity
+        filter.0.excluded_entities.clear();
+        filter
+            .0
+            .excluded_entities
+            .extend(sensors.iter().chain([entity]));
     }
 }
 
@@ -28,11 +59,14 @@ impl Plugin for KCCPlugin {
 #[require(
     RigidBody = RigidBody::Kinematic,
     Collider = Capsule3d::new(EXAMPLE_CHARACTER_RADIUS, EXAMPLE_CHARACTER_CAPSULE_LENGTH),
+    CharacterFilter,
 )]
 pub struct Character {
     velocity: Vec3,
-    ground: Option<Dir3>,
+    ground: Option<Ground>,
+    previous_ground: Option<Ground>,
     up: Dir3,
+    config: MoveAndSlideConfig,
 }
 
 impl Character {
@@ -40,7 +74,7 @@ impl Character {
     pub fn launch(&mut self, impulse: Vec3) {
         if let Some(ground) = self.ground {
             // Clear grounded if launched away from the ground
-            if ground.dot(impulse) > 0.0 {
+            if ground.normal.dot(impulse) > 0.0 {
                 self.ground = None;
             }
         }
@@ -66,7 +100,9 @@ impl Default for Character {
         Self {
             velocity: Vec3::ZERO,
             ground: None,
+            previous_ground: None,
             up: Dir3::Y,
+            config: MoveAndSlideConfig::default(),
         }
     }
 }
@@ -84,27 +120,79 @@ fn jump_input(mut query: Query<(&mut Character, &Actions<DefaultContext>)>) {
     }
 }
 
+fn platform_movement(
+    spatial_query: SpatialQuery,
+    mut query: Query<(&mut Transform, &mut Character, &Collider, &CharacterFilter)>,
+    platforms: Query<(&GlobalTransform, &PreviousGlobalTransform)>,
+    time: Res<Time>,
+) {
+    for (mut transform, mut character, collider, filter) in &mut query {
+        let platform_motion = |entity| {
+            platforms.get(entity).map_or(
+                Vec3::ZERO,
+                |(platform_transform, prev_platform_transform)| {
+                    motion_on_point(
+                        transform.translation,
+                        platform_transform,
+                        prev_platform_transform,
+                    )
+                },
+            )
+        };
+
+        match (character.ground, character.previous_ground) {
+            // Currently on the platform, follow it's movement
+            (Some(ground), ..) => {
+                let platform_motion = platform_motion(ground.entity);
+
+                // Sweep in the platform movement direction to avoid passing through walls
+                if let Ok((direction, max_distance)) = Dir3::new_and_length(platform_motion) {
+                    let safe_distance = sweep_check(
+                        collider,
+                        character.config.epsilon,
+                        transform.translation,
+                        direction,
+                        max_distance,
+                        transform.rotation,
+                        &spatial_query,
+                        &filter.0,
+                    )
+                    .map(|(d, _)| d)
+                    .unwrap_or(max_distance);
+
+                    transform.translation += direction * safe_distance;
+                };
+            }
+            // Left the platform, inherit the platform velocity
+            (None, Some(previous_ground)) => {
+                let platform_velocity = platform_motion(previous_ground.entity) / time.delta_secs();
+                character.velocity += platform_velocity;
+            }
+            _ => {}
+        }
+
+        character.previous_ground = character.ground;
+    }
+}
+
 fn movement(
     mut q_kcc: Query<
         (
-            Entity,
             &Actions<DefaultContext>,
             &mut Transform,
             &mut Character,
             &Collider,
-            &CollisionLayers,
+            &CharacterFilter,
             Has<Sensor>,
         ),
         Without<Frozen>,
     >,
     main_camera: Single<&Transform, (With<MainCamera>, Without<Character>)>,
-    sensors: Query<Entity, With<Sensor>>,
     time: Res<Time>,
     spatial_query: SpatialQuery,
 ) {
     let main_camera_transform = main_camera.into_inner();
-    for (entity, actions, mut transform, mut character, collider, layers, has_sensor) in &mut q_kcc
-    {
+    for (actions, mut transform, mut character, collider, filter, has_sensor) in &mut q_kcc {
         // Get the raw 2D input vector
         let input_vec = actions.action::<input::Move>().value().as_axis2d();
 
@@ -148,22 +236,12 @@ fn movement(
             continue;
         }
 
-        // Filter out the character entity as well as any entities not in the character's collision filter
-        let mut filter = SpatialQueryFilter::default()
-            .with_excluded_entities([entity])
-            .with_mask(layers.filters);
-
-        // Also filter out sensor entities
-        filter.excluded_entities.extend(sensors);
-
-        let config = MoveAndSlideConfig::default();
-
         // We need to store the new ground for the ground check to work properly
         let mut new_ground = None;
 
         if let Some(ground) = character.ground {
             // Project acceleration on the ground plane
-            move_accel = project_motion_on_ground(move_accel, *ground, character.up);
+            move_accel = project_motion_on_ground(move_accel, *ground.normal, character.up);
         }
 
         // Sweep in the movement direction to find a plane to project acceleration on
@@ -173,19 +251,24 @@ fn movement(
         {
             if let Some((safe_distance, hit)) = sweep_check(
                 collider,
-                config.epsilon,
+                character.config.epsilon,
                 transform.translation,
                 direction,
                 max_distance,
                 transform.rotation,
                 &spatial_query,
-                &filter,
+                &filter.0,
             ) {
                 // Move to the hit point
                 transform.translation += direction * safe_distance;
 
-                if is_walkable(hit.normal1, character.up, EXAMPLE_WALKABLE_ANGLE) {
-                    new_ground = Some(Dir3::new(hit.normal1).unwrap());
+                if let Some(ground) = Ground::new_if_walkable(
+                    hit.entity,
+                    hit.normal1,
+                    character.up,
+                    EXAMPLE_WALKABLE_ANGLE,
+                ) {
+                    new_ground = Some(ground);
 
                     // If the ground is walkable, project motion on ground plane
                     move_accel = project_motion_on_ground(move_accel, hit.normal1, character.up);
@@ -197,13 +280,14 @@ fn movement(
                     hit.normal1,
                     direction,
                     max_distance - safe_distance,
-                    config.epsilon,
+                    character.config.epsilon,
                     &spatial_query,
-                    &filter,
+                    &filter.0,
                     time.delta_secs(),
                 ) {
-                    new_ground = Some(Dir3::new(step_result.normal).unwrap());
+                    new_ground = Some(step_result.ground);
 
+                    // Step up
                     transform.translation = step_result.translation;
                 } else {
                     // If the ground is not walkable, project motion on wall plane
@@ -220,12 +304,17 @@ fn movement(
             transform.translation,
             character.velocity,
             transform.rotation,
-            config,
-            &filter,
+            character.config,
+            &filter.0,
             time.delta_secs(),
             |hit| {
-                if is_walkable(hit.hit_data.normal1, character.up, EXAMPLE_WALKABLE_ANGLE) {
-                    new_ground = Some(Dir3::new(hit.hit_data.normal1).unwrap());
+                if let Some(ground) = Ground::new_if_walkable(
+                    hit.hit_data.entity,
+                    hit.hit_data.normal1,
+                    character.up,
+                    EXAMPLE_WALKABLE_ANGLE,
+                ) {
+                    new_ground = Some(ground);
 
                     // Avoid sliding down slopes when just landing
                     if !character.grounded() {
@@ -257,12 +346,12 @@ fn movement(
                         hit.hit_data.normal1,
                         hit.direction,
                         hit.remaining_motion,
-                        config.epsilon,
+                        character.config.epsilon,
                         &spatial_query,
-                        &filter,
+                        &filter.0,
                         time.delta_secs(),
                     ) {
-                        new_ground = Some(Dir3::new(step_result.normal).unwrap());
+                        new_ground = Some(step_result.ground);
 
                         // Subtract the stepped distance from remaining time to avoid moving further
                         *hit.remaining_time =
@@ -303,33 +392,23 @@ fn movement(
 
         transform.translation = move_result.new_translation;
 
-        if character.grounded() && new_ground.is_none() {
-            if let Some((safe_distance, hit)) = ground_check(
+        // Check if the previous ground is still there and snap to it
+        if character.grounded() {
+            if let Some((safe_distance, ground)) = ground_check(
                 &collider,
-                &config,
+                character.config,
                 transform.translation,
                 character.up,
                 transform.rotation,
                 &spatial_query,
-                &filter,
+                &filter.0,
                 EXAMPLE_GROUND_CHECK_DISTANCE,
                 EXAMPLE_WALKABLE_ANGLE,
             ) {
-                transform.translation -= safe_distance * character.up;
-                new_ground = Some(Dir3::new(hit.normal1).unwrap());
+                transform.translation -= character.up * safe_distance;
+                new_ground = Some(ground);
             }
         }
-
-        let h = character
-            .velocity
-            .reject_from_normalized(*character.up)
-            .length();
-        let v = character
-            .velocity
-            .project_onto_normalized(*character.up)
-            .length();
-        let all = character.velocity.length();
-        dbg!([h, v, all]);
 
         // Update the ground
         character.ground = new_ground;
@@ -339,7 +418,7 @@ fn movement(
 struct StepUpResult {
     translation: Vec3,
     move_time: f32,
-    normal: Vec3,
+    ground: Ground,
 }
 
 fn try_step_up_on_hit(
@@ -386,13 +465,16 @@ fn try_step_up_on_hit(
         return None;
     };
 
-    if !is_walkable(
+    let ground = Ground::new_if_walkable(
+        hit.entity,
         hit.normal1,
         up,
         // Subtract a small amount from walkable angle to make sure we can't step
         // on surfaces that are nearly excactly the walkable angle of the character
         EXAMPLE_WALKABLE_ANGLE - 1e-4,
-    ) {
+    )?;
+
+    if !is_walkable(hit.normal1, up, EXAMPLE_WALKABLE_ANGLE - 1e-4) {
         return None;
     }
 
@@ -402,7 +484,7 @@ fn try_step_up_on_hit(
     Some(StepUpResult {
         translation: step_translation,
         move_time,
-        normal: hit.normal1,
+        ground,
     })
 }
 

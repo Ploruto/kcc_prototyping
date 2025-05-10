@@ -94,8 +94,6 @@ pub fn move_and_slide(
     config: MoveAndSlideConfig,
     filter: &SpatialQueryFilter,
     delta_time: f32,
-    // Callback that is called when a hit occurs.
-    // If `false` is returned then the body will not slide during that iteration.
     mut on_hit: impl FnMut(&mut MoveAndSlideHit) -> bool,
 ) -> MoveAndSlideResult {
     let Ok(original_direction) = Dir3::new(velocity) else {
