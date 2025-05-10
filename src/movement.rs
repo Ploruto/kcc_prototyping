@@ -216,33 +216,37 @@ fn movement(
 
         let move_result = move_and_slide(
             &spatial_query,
-            &collider,
+            collider,
             transform.translation,
             character.velocity,
             transform.rotation,
             config,
             &filter,
             time.delta_secs(),
-            |hit| {
-                if is_walkable(hit.hit_data.normal1, character.up, EXAMPLE_WALKABLE_ANGLE) {
-                    new_ground = Some(Dir3::new(hit.hit_data.normal1).unwrap());
+            |Slide {
+                 hit,
+                 translation,
+                 mut velocity,
+                 direction,
+                 remaining_motion,
+                 ..
+             }| {
+                if is_walkable(hit.normal1, character.up, EXAMPLE_WALKABLE_ANGLE) {
+                    new_ground = Some(Dir3::new(hit.normal1).unwrap());
 
                     // Avoid sliding down slopes when just landing
                     if !character.grounded() {
-                        *hit.velocity = project_motion_on_ground(
-                            *hit.velocity,
-                            hit.hit_data.normal1,
-                            character.up,
-                        );
+                        velocity = project_motion_on_ground(velocity, hit.normal1, character.up);
 
-                        character.velocity = project_motion_on_ground(
-                            character.velocity,
-                            hit.hit_data.normal1,
-                            character.up,
-                        );
+                        character.velocity =
+                            project_motion_on_ground(character.velocity, hit.normal1, character.up);
                     }
 
-                    return true;
+                    return SlideResult {
+                        translation,
+                        velocity,
+                        ..Default::default()
+                    };
                 }
 
                 let grounded = character.grounded() || new_ground.is_some();
@@ -251,12 +255,12 @@ fn movement(
                 if grounded {
                     if let Some(step_result) = try_step_up_on_hit(
                         collider,
-                        *hit.translation,
+                        translation,
                         transform.rotation,
                         character.up,
-                        hit.hit_data.normal1,
-                        hit.direction,
-                        hit.remaining_motion,
+                        hit.normal1,
+                        direction,
+                        remaining_motion,
                         config.epsilon,
                         &spatial_query,
                         &filter,
@@ -264,15 +268,12 @@ fn movement(
                     ) {
                         new_ground = Some(Dir3::new(step_result.normal).unwrap());
 
-                        // Subtract the stepped distance from remaining time to avoid moving further
-                        *hit.remaining_time =
-                            (*hit.remaining_time - step_result.move_time).max(0.0);
-
-                        // We need to override the translation here because the we stepped up
-                        *hit.translation = step_result.translation;
-
-                        // Successfully stepped, don't slide this iteration
-                        return false;
+                        return SlideResult {
+                            translation: step_result.translation,
+                            elapsed_time: step_result.elapsed_time,
+                            velocity,
+                            skip_slide: true, // Successfully stepped, don't slide this iteration
+                        };
                     }
                 }
 
@@ -280,32 +281,27 @@ fn movement(
                 match grounded {
                     // Avoid sliding up walls when grounded
                     true => {
-                        character.velocity = project_motion_on_wall(
-                            character.velocity,
-                            hit.hit_data.normal1,
-                            character.up,
-                        );
+                        character.velocity =
+                            project_motion_on_wall(character.velocity, hit.normal1, character.up);
 
-                        *hit.velocity = project_motion_on_wall(
-                            *hit.velocity,
-                            hit.hit_data.normal1,
-                            character.up,
-                        )
+                        velocity = project_motion_on_wall(velocity, hit.normal1, character.up)
                     }
-                    false => {
-                        character.velocity = character.velocity.reject_from(hit.hit_data.normal1)
-                    }
+                    false => character.velocity = character.velocity.reject_from(hit.normal1),
                 };
 
-                true
+                SlideResult {
+                    translation,
+                    velocity,
+                    ..Default::default()
+                }
             },
         );
 
-        transform.translation = move_result.new_translation;
+        transform.translation = move_result.translation;
 
         if character.grounded() && new_ground.is_none() {
             if let Some((safe_distance, hit)) = ground_check(
-                &collider,
+                collider,
                 &config,
                 transform.translation,
                 character.up,
@@ -338,7 +334,7 @@ fn movement(
 
 struct StepUpResult {
     translation: Vec3,
-    move_time: f32,
+    elapsed_time: f32,
     normal: Vec3,
 }
 
@@ -373,14 +369,14 @@ fn try_step_up_on_hit(
 
     let Some((step_translation, hit)) = try_climb_step(
         spatial_query,
-        &collider,
+        collider,
         translation,
         step_motion,
         rotation,
         up,
         EXAMPLE_STEP_HEIGHT + EXAMPLE_GROUND_CHECK_DISTANCE,
         epsilon,
-        &filter,
+        filter,
     ) else {
         // Can't stand here, slide instead
         return None;
@@ -397,11 +393,11 @@ fn try_step_up_on_hit(
     }
 
     // Subtract the stepped distance from remaining time to avoid moving further
-    let move_time = (step_forward + inward) * delta_time;
+    let elapsed_time = (step_forward + inward) * delta_time;
 
     Some(StepUpResult {
         translation: step_translation,
-        move_time,
+        elapsed_time,
         normal: hit.normal1,
     })
 }

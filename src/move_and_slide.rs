@@ -52,40 +52,47 @@ impl Default for MoveAndSlideConfig {
 }
 
 /// Result of the move_and_slide function.
-pub struct MoveAndSlideResult {
-    pub new_translation: Vec3,
-    pub new_velocity: Vec3,
+pub(crate) struct MoveAndSlideResult {
+    pub translation: Vec3,
+    pub applied_motion: Vec3,
+    pub remaining_time: f32,
 }
 
-/// Hit data from the move_and_slide function.
-pub struct MoveAndSlideHit<'a> {
-    /// `move_and_slide` works by substepping. This is the last substep that has occurred, starting from 0.
-    pub substep: u8,
-    /// The hit data from the spatial query.
-    pub hit_data: ShapeHitData,
-    /// You can override the translation from within the `on_hit` callback by setting this value.
-    pub translation: &'a mut Vec3,
-    /// You can override the velocity from within the `on_hit` callback by setting this value.
-    pub velocity: &'a mut Vec3,
-    /// This is the movement direction that occured within the substep before the hit.
+pub(crate) struct Slide {
+    pub hit: ShapeHitData,
+    pub step_index: u8,
+    pub translation: Vec3,
+    pub velocity: Vec3,
     pub direction: Dir3,
-    /// This is the movement that occured within the substep before the hit.
-    pub motion: f32,
-    /// This is the remaining movement within the substep that would have occurred if we didn't hit anything.
+    pub incoming_motion: f32,
     pub remaining_motion: f32,
-    /// This is the remaining time of the movement for all substeps. You can override this value to stop the movement early.
-    pub remaining_time: &'a mut f32,
+}
+
+#[derive(Default)]
+pub(crate) struct SlideResult {
+    /// The new translation after sliding.
+    pub translation: Vec3,
+    /// The new velocity after sliding.
+    pub velocity: Vec3,
+    /// The elapsed simulation time, will be subtracted from the remaining simulation time in `move_and_slide`.
+    pub elapsed_time: f32,
+    pub skip_slide: bool,
 }
 
 // @todo: lets make this take in a struct instead of a bunch of arguments,
 // that way each can be commented and we can also provide sane defaults, also ordering doesn't matter.
+// ~! actually, there are no defaults that make sense for any of the parameters of the function :(
 
 /// Pure function that returns new translation and velocity based on the current translation,
 /// velocity, and rotation.
 ///
-/// If `on_hit` returns `false` then the body will not slide during that iteration.
 #[allow(clippy::too_many_arguments)]
-pub fn move_and_slide(
+/// If `on_hit` returns with `SlideOutput::skip_slide` set to true then the `collider` will not slide during that iteration.
+///
+/// Keeping this as `pub(crate)` for now so I can keep `Slide` and `SlideOutput` as `pub(crate)`.
+/// This is so we can get warnings about unused types/properties which is very useful when deciding whether
+/// or not it's safe to delete stuff.
+pub(crate) fn move_and_slide(
     spatial_query: &SpatialQuery,
     collider: &Collider,
     mut translation: Vec3,
@@ -94,14 +101,13 @@ pub fn move_and_slide(
     config: MoveAndSlideConfig,
     filter: &SpatialQueryFilter,
     delta_time: f32,
-    // Callback that is called when a hit occurs.
-    // If `false` is returned then the body will not slide during that iteration.
-    mut on_hit: impl FnMut(&mut MoveAndSlideHit) -> bool,
+    mut on_hit: impl FnMut(Slide) -> SlideResult,
 ) -> MoveAndSlideResult {
     let Ok(original_direction) = Dir3::new(velocity) else {
         return MoveAndSlideResult {
-            new_translation: translation,
-            new_velocity: velocity,
+            translation,
+            remaining_time: delta_time,
+            applied_motion: Vec3::ZERO,
         };
     };
 
@@ -109,7 +115,7 @@ pub fn move_and_slide(
 
     let mut hits = Vec::with_capacity(config.max_substeps as usize);
 
-    for substep in 0..config.max_substeps {
+    for i in 0..config.max_substeps {
         let Ok((direction, max_distance)) = Dir3::new_and_length(velocity * remaining_time) else {
             break;
         };
@@ -135,17 +141,24 @@ pub fn move_and_slide(
         // Move the transform to just before the point of collision
         translation += direction * safe_movement;
 
-        // Trigger callbacks
-        if !on_hit(&mut MoveAndSlideHit {
-            substep,
-            hit_data: hit,
-            translation: &mut translation,
-            velocity: &mut velocity,
+        let slide = Slide {
+            hit,
+            step_index: i,
+            translation,
+            velocity,
             direction,
-            motion: safe_movement,
+            incoming_motion: safe_movement,
             remaining_motion: max_distance - safe_movement,
-            remaining_time: &mut remaining_time,
-        }) {
+        };
+
+        // Trigger callbacks
+        let slide_result = on_hit(slide);
+
+        translation = slide_result.translation;
+        velocity = slide_result.velocity;
+        remaining_time = (remaining_time - slide_result.elapsed_time).max(0.0);
+
+        if slide_result.skip_slide {
             // User decided to not slide, continue to next substep
             continue;
         }
@@ -161,8 +174,9 @@ pub fn move_and_slide(
     }
 
     MoveAndSlideResult {
-        new_translation: translation,
-        new_velocity: velocity,
+        translation,
+        applied_motion: velocity * (delta_time - remaining_time),
+        remaining_time,
     }
 }
 
