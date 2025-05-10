@@ -84,7 +84,6 @@ pub struct MoveAndSlideHit<'a> {
 /// velocity, and rotation.
 ///
 /// If `on_hit` returns `false` then the body will not slide during that iteration.
-#[allow(clippy::too_many_arguments)]
 pub fn move_and_slide(
     spatial_query: &SpatialQuery,
     collider: &Collider,
