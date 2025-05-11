@@ -53,60 +53,76 @@ impl Default for MoveAndSlideConfig {
 
 /// Result of the move_and_slide function.
 pub struct MoveAndSlideResult {
-    pub new_translation: Vec3,
-    pub new_velocity: Vec3,
+    pub translation: Vec3,
+    pub velocity: Vec3,
+    pub remaining_time: f32,
+    pub plane: Option<PlaneType>,
+    pub applied_motion: Vec3,
 }
 
-/// Hit data from the move_and_slide function.
-pub struct MoveAndSlideHit<'a> {
-    /// `move_and_slide` works by substepping. This is the last substep that has occurred, starting from 0.
-    pub substep: u8,
-    /// The hit data from the spatial query.
-    pub hit_data: ShapeHitData,
-    /// You can override the translation from within the `on_hit` callback by setting this value.
-    pub translation: &'a mut Vec3,
-    /// You can override the velocity from within the `on_hit` callback by setting this value.
-    pub velocity: &'a mut Vec3,
-    /// This is the movement direction that occured within the substep before the hit.
+pub struct Slide {
+    pub hit: ShapeHitData,
+    pub plane: PlaneType,
+    pub translation: Vec3,
+    pub velocity: Vec3,
     pub direction: Dir3,
-    /// This is the movement that occured within the substep before the hit.
-    pub motion: f32,
-    /// This is the remaining movement within the substep that would have occurred if we didn't hit anything.
+    pub incoming_motion: f32,
     pub remaining_motion: f32,
-    /// This is the remaining time of the movement for all substeps. You can override this value to stop the movement early.
-    pub remaining_time: &'a mut f32,
+}
+
+impl Slide {
+    pub fn project_motion(self) -> SlideResult {
+        SlideResult {
+            translation: self.translation,
+            velocity: self.plane.project_motion(self.velocity),
+            elapsed_time: 0.0,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct SlideResult {
+    /// The new translation after sliding.
+    pub translation: Vec3,
+    /// The new velocity after sliding.
+    pub velocity: Vec3,
+    /// The elapsed simulation time, will be subtracted from the remaining simulation time in `move_and_slide`.
+    pub elapsed_time: f32,
 }
 
 // @todo: lets make this take in a struct instead of a bunch of arguments,
 // that way each can be commented and we can also provide sane defaults, also ordering doesn't matter.
+// ~! actually, there are no defaults that make sense for any of the parameters of the function :(
 
 /// Pure function that returns new translation and velocity based on the current translation,
 /// velocity, and rotation.
-///
-/// If `on_hit` returns `false` then the body will not slide during that iteration.
 pub fn move_and_slide(
     spatial_query: &SpatialQuery,
     collider: &Collider,
-    mut translation: Vec3,
+    origin: Vec3,
     mut velocity: Vec3,
     rotation: Quat,
     config: MoveAndSlideConfig,
     filter: &SpatialQueryFilter,
     delta_time: f32,
-    mut on_hit: impl FnMut(&mut MoveAndSlideHit) -> bool,
+    mut on_hit: impl FnMut(Slide) -> SlideResult,
 ) -> MoveAndSlideResult {
+    let mut translation = origin;
+    let mut remaining_time = delta_time;
+
     let Ok(original_direction) = Dir3::new(velocity) else {
         return MoveAndSlideResult {
-            new_translation: translation,
-            new_velocity: velocity,
+            translation,
+            velocity,
+            remaining_time,
+            plane: None,
+            applied_motion: Vec3::ZERO,
         };
     };
 
-    let mut remaining_time = delta_time;
+    let mut planes = SlidePlanes(Vec::with_capacity(4));
 
-    let mut hits = Vec::with_capacity(config.max_substeps as usize);
-
-    for substep in 0..config.max_substeps {
+    for _ in 0..config.max_substeps {
         let Ok((direction, max_distance)) = Dir3::new_and_length(velocity * remaining_time) else {
             break;
         };
@@ -132,24 +148,27 @@ pub fn move_and_slide(
         // Move the transform to just before the point of collision
         translation += direction * safe_movement;
 
-        // Trigger callbacks
-        if !on_hit(&mut MoveAndSlideHit {
-            substep,
-            hit_data: hit,
-            translation: &mut translation,
-            velocity: &mut velocity,
+        let Some(plane) = planes.insert(hit.normal1) else {
+            continue; // TODO: we can probably break here
+        };
+
+        let slide = Slide {
+            hit,
+            plane,
+            translation,
+            velocity,
             direction,
-            motion: safe_movement,
+            incoming_motion: safe_movement,
             remaining_motion: max_distance - safe_movement,
-            remaining_time: &mut remaining_time,
-        }) {
-            // User decided to not slide, continue to next substep
-            continue;
-        }
+        };
 
-        hits.push(hit.normal1);
+        // Trigger callbacks
+        let slide_result = on_hit(slide);
 
-        velocity = solve_collision_planes(velocity, &hits, *original_direction);
+        // Update state from callback result
+        translation = slide_result.translation;
+        velocity = slide_result.velocity;
+        remaining_time = (remaining_time - slide_result.elapsed_time).max(0.0);
 
         // Quake2: "If velocity is against original velocity, stop early to avoid tiny oscilations in sloping corners."
         if velocity.dot(*original_direction) <= 0.0 {
@@ -158,8 +177,72 @@ pub fn move_and_slide(
     }
 
     MoveAndSlideResult {
-        new_translation: translation,
-        new_velocity: velocity,
+        translation,
+        applied_motion: translation - origin,
+        velocity,
+        remaining_time,
+        plane: planes.plane_type(),
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct SlidePlanes(pub Vec<Dir3>); // TODO: smallvec
+
+#[derive(Debug, Clone, Copy)]
+pub enum PlaneType {
+    Plane(Dir3),
+    Crease { crease: Dir3, planes: [Dir3; 2] },
+    Corner([Dir3; 3]),
+}
+
+impl PlaneType {
+    #[must_use]
+    pub fn project_motion(self, motion: Vec3) -> Vec3 {
+        match self {
+            PlaneType::Plane(normal) => motion.reject_from_normalized(*normal),
+            PlaneType::Crease { crease, .. } => motion.project_onto_normalized(*crease),
+            PlaneType::Corner(_) => Vec3::ZERO,
+        }
+    }
+}
+
+impl SlidePlanes {
+    /// Insert a new plane, returning the resulting [`PlaneType`].
+    #[track_caller]
+    pub fn insert(&mut self, normal: impl TryInto<Dir3>) -> Option<PlaneType> {
+        // TODO: we only really have to normalize after checking if the normal is unique
+        let normal = normal
+            .try_into()
+            .unwrap_or_else(|_| panic!("normal must not be zero, infinite or NaN"));
+
+        // Make sure the no two normals are the same
+        if self.0.iter().any(|n| n.dot(*normal) > 1.0 - 0.01) {
+            return None;
+        }
+
+        self.0.push(normal);
+
+        self.plane_type()
+    }
+
+    // TODO: use a more fancy approach if necessary
+    pub fn plane_type(&self) -> Option<PlaneType> {
+        // This assumes every normal is unique which is enforced by the insert method
+        match &self.0[..] {
+            // Plane
+            &[normal] => Some(PlaneType::Plane(normal)),
+            // Crease
+            &[previous, current] => {
+                let crease = Dir3::new(previous.cross(*current)).unwrap();
+                Some(PlaneType::Crease {
+                    crease,
+                    planes: [previous, current],
+                })
+            }
+            // Corner
+            &[.., a, b, c] => Some(PlaneType::Corner([a, b, c])),
+            &[] => None,
+        }
     }
 }
 

@@ -172,6 +172,7 @@ pub fn ground_check(
 ///
 /// **Panics** if the `normal` is zero, infinite or `NaN`.
 #[track_caller]
+#[must_use]
 pub fn project_motion(
     motion: Vec3,
     normal: impl TryInto<Dir3>,
@@ -194,6 +195,7 @@ pub fn project_motion(
 ///
 /// **Panics** if the `normal` is zero, infinite or `NaN`.
 #[track_caller]
+#[must_use]
 pub fn project_motion_on_ground(motion: Vec3, normal: impl TryInto<Dir3>, up: Dir3) -> Vec3 {
     let normal = normal
         .try_into()
@@ -233,6 +235,7 @@ pub fn project_motion_on_ground(motion: Vec3, normal: impl TryInto<Dir3>, up: Di
 ///
 /// **Panics** if the `normal` is zero, infinite or `NaN`.
 #[track_caller]
+#[must_use]
 pub fn project_motion_on_wall(motion: Vec3, normal: impl TryInto<Dir3>, up: Dir3) -> Vec3 {
     let normal = normal
         .try_into()
@@ -258,6 +261,7 @@ pub fn project_motion_on_wall(motion: Vec3, normal: impl TryInto<Dir3>, up: Dir3
 /// Transform a point that's relative to a previous transform to a new transform's space.
 ///
 /// Returns the new world-space position of the point.
+#[must_use]
 pub fn transform_moving_point(
     point: Vec3,
     current_transform: &GlobalTransform,
@@ -274,6 +278,7 @@ pub fn transform_moving_point(
 }
 
 /// Get the motion of a moving transform at the given `point`.
+#[must_use]
 pub fn motion_on_point(
     point: Vec3,
     current_transform: &GlobalTransform,

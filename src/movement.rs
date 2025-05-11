@@ -6,7 +6,7 @@ use avian3d::{
     },
     sync::PreviousGlobalTransform,
 };
-use bevy::prelude::*;
+use bevy::{color::palettes::css::*, prelude::*};
 use bevy_enhanced_input::prelude::{ActionState, Actions};
 
 use crate::{
@@ -176,6 +176,7 @@ fn platform_movement(
 }
 
 fn movement(
+    mut gizmos: Gizmos,
     mut q_kcc: Query<
         (
             &Actions<DefaultContext>,
@@ -300,38 +301,82 @@ fn movement(
 
         let move_result = move_and_slide(
             &spatial_query,
-            &collider,
+            collider,
             transform.translation,
             character.velocity,
             transform.rotation,
             character.config,
             &filter.0,
             time.delta_secs(),
-            |hit| {
+            // Sliding works differently for the character velocity and the move and slide velocity state
+            // When the character is grounded we want to preserve it's horizontal velocity to avoid slowing down or bouncing off small obstacles
+            // Meanwhile, the move and slide velocity must always be perpendicular to the plane normal in order to progress the simulation in the next step
+            |Slide {
+                 hit,
+                 plane,
+                 translation,
+                 mut velocity,
+                 direction,
+                 remaining_motion,
+                 ..
+             }| {
+                // Debug slide plane
+                match plane {
+                    PlaneType::Plane(normal) => {
+                        gizmos.arrow(translation, translation + *normal, WHITE);
+                    }
+                    PlaneType::Crease { crease, .. } => {
+                        gizmos.arrow(
+                            translation,
+                            translation
+                                + velocity
+                                    .project_onto_normalized(*crease)
+                                    .normalize_or_zero(),
+                            YELLOW,
+                        );
+                    }
+                    PlaneType::Corner(_) => {
+                        gizmos.cross(translation, 1.0, RED);
+                    }
+                }
+
                 if let Some(ground) = Ground::new_if_walkable(
-                    hit.hit_data.entity,
-                    hit.hit_data.normal1,
+                    hit.entity,
+                    hit.normal1,
                     character.up,
                     EXAMPLE_WALKABLE_ANGLE,
                 ) {
                     new_ground = Some(ground);
 
-                    // Avoid sliding down slopes when just landing
-                    if !character.grounded() {
-                        *hit.velocity = project_motion_on_ground(
-                            *hit.velocity,
-                            hit.hit_data.normal1,
-                            character.up,
-                        );
+                    // Slide velocity on the ground
+                    match plane {
+                        PlaneType::Plane(normal) => {
+                            velocity = project_motion_on_ground(velocity, normal, character.up);
 
-                        character.velocity = project_motion_on_ground(
-                            character.velocity,
-                            hit.hit_data.normal1,
-                            character.up,
-                        );
+                            // Projecting the character velocity on the ground results in sudden slowdown when stepping over small obstacles
+                            // We still have to do it when landing to make sure velocity is not going into the ground
+                            if !character.grounded() {
+                                character.velocity = project_motion_on_ground(
+                                    character.velocity,
+                                    normal,
+                                    character.up,
+                                );
+                            }
+                        }
+                        plane => {
+                            velocity = plane.project_motion(velocity);
+
+                            if !character.grounded() {
+                                character.velocity = plane.project_motion(character.velocity);
+                            }
+                        }
                     }
 
-                    return true;
+                    return SlideResult {
+                        translation,
+                        velocity,
+                        ..Default::default()
+                    };
                 }
 
                 let grounded = character.grounded() || new_ground.is_some();
@@ -340,12 +385,12 @@ fn movement(
                 if grounded {
                     if let Some(step_result) = try_step_up_on_hit(
                         collider,
-                        *hit.translation,
+                        translation,
                         transform.rotation,
                         character.up,
-                        hit.hit_data.normal1,
-                        hit.direction,
-                        hit.remaining_motion,
+                        hit.normal1,
+                        direction,
+                        remaining_motion,
                         character.config.epsilon,
                         &spatial_query,
                         &filter.0,
@@ -353,49 +398,57 @@ fn movement(
                     ) {
                         new_ground = Some(step_result.ground);
 
-                        // Subtract the stepped distance from remaining time to avoid moving further
-                        *hit.remaining_time =
-                            (*hit.remaining_time - step_result.move_time).max(0.0);
-
-                        // We need to override the translation here because the we stepped up
-                        *hit.translation = step_result.translation;
-
-                        // Successfully stepped, don't slide this iteration
-                        return false;
+                        return SlideResult {
+                            translation: step_result.translation,
+                            elapsed_time: step_result.elapsed_time,
+                            velocity,
+                        };
                     }
                 }
 
-                // Slide vleocity along walls
-                match grounded {
-                    // Avoid sliding up walls when grounded
-                    true => {
-                        character.velocity = project_motion_on_wall(
-                            character.velocity,
-                            hit.hit_data.normal1,
-                            character.up,
-                        );
-
-                        *hit.velocity = project_motion_on_wall(
-                            *hit.velocity,
-                            hit.hit_data.normal1,
-                            character.up,
-                        )
+                // Slide veleocity along walls
+                // We are duplicating behaviour here because velocity and character velocity are not guaranteed to be the same values
+                match plane {
+                    PlaneType::Plane(normal) => match grounded {
+                        // Avoid sliding up walls when grounded
+                        true => {
+                            velocity = project_motion_on_wall(velocity, normal, character.up);
+                            character.velocity =
+                                project_motion_on_wall(character.velocity, normal, character.up);
+                        }
+                        false => {
+                            velocity = velocity.reject_from_normalized(*normal);
+                            character.velocity = character.velocity.reject_from_normalized(*normal);
+                        }
+                    },
+                    plane => {
+                        velocity = plane.project_motion(velocity);
+                        character.velocity = plane.project_motion(character.velocity);
                     }
-                    false => {
-                        character.velocity = character.velocity.reject_from(hit.hit_data.normal1)
-                    }
-                };
+                }
 
-                true
+                SlideResult {
+                    translation,
+                    velocity,
+                    ..Default::default()
+                }
             },
         );
 
-        transform.translation = move_result.new_translation;
+        if let Ok(direction) = Dir3::new(move_result.applied_motion) {
+            gizmos.arrow(
+                transform.translation,
+                transform.translation + *direction,
+                BLACK,
+            );
+        }
+
+        transform.translation = move_result.translation;
 
         // Check if the previous ground is still there and snap to it
         if character.grounded() {
             if let Some((safe_distance, ground)) = ground_check(
-                &collider,
+                collider,
                 character.config,
                 transform.translation,
                 character.up,
@@ -410,17 +463,6 @@ fn movement(
             }
         }
 
-        let h = character
-            .velocity
-            .reject_from_normalized(*character.up)
-            .length();
-        let v = character
-            .velocity
-            .project_onto_normalized(*character.up)
-            .length();
-        let all = character.velocity.length();
-        // dbg!([h, v, all]);
-
         // Update the ground
         character.ground = new_ground;
     }
@@ -428,7 +470,7 @@ fn movement(
 
 struct StepUpResult {
     translation: Vec3,
-    move_time: f32,
+    elapsed_time: f32,
     ground: Ground,
 }
 
@@ -463,14 +505,14 @@ fn try_step_up_on_hit(
 
     let Some((step_translation, hit)) = try_climb_step(
         spatial_query,
-        &collider,
+        collider,
         translation,
         step_motion,
         rotation,
         up,
         EXAMPLE_STEP_HEIGHT + EXAMPLE_GROUND_CHECK_DISTANCE,
         epsilon,
-        &filter,
+        filter,
     ) else {
         // Can't stand here, slide instead
         return None;
@@ -490,11 +532,11 @@ fn try_step_up_on_hit(
     }
 
     // Subtract the stepped distance from remaining time to avoid moving further
-    let move_time = (step_forward + inward) * delta_time;
+    let elapsed_time = (step_forward + inward) * delta_time;
 
     Some(StepUpResult {
         translation: step_translation,
-        move_time,
+        elapsed_time,
         ground,
     })
 }
