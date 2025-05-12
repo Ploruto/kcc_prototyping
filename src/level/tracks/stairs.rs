@@ -2,7 +2,7 @@
 
 use crate::level::{
     common::{self, Param}, // Use common helpers and Param enum
-    utils::{BASE_Y, Geometry, TextureAssets, TrackOffsets}, // Use resources/constants
+    utils::{BASE_Y, TextureAssets, TrackOffsets}, // Use resources/constants
 };
 use bevy::prelude::*;
 use std::collections::HashMap;

@@ -1,6 +1,6 @@
 use crate::level::{
     common::{self, Param},
-    utils::{BASE_Y, Geometry, TextureAssets, TrackOffsets},
+    utils::{BASE_Y, TextureAssets, TrackOffsets},
 };
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -130,7 +130,7 @@ fn spawn_ramp_instance(
     // Ramps typically extend along Z, adjust position relative to track Z
     // If angle > 0, ramp goes up towards +Y and extends towards -Z relative to its center
     let length_z_proj = (ramp_size.z / 2.0) * angle_rad.cos();
-    let ramp_center_z = TRACK_Z - length_z_proj * angle_rad.signum(); // Adjust based on angle sign? Or assume positive angle means upward slope towards +Z? Let's assume upward slope along +Z axis relative to local X. Needs testing.
+    let _ramp_center_z = TRACK_Z - length_z_proj * angle_rad.signum(); // Adjust based on angle sign? Or assume positive angle means upward slope towards +Z? Let's assume upward slope along +Z axis relative to local X. Needs testing.
     // Let's stick to the original calculation for now, assuming rotation places it correctly.
     let ramp_center_z = TRACK_Z; // Place center at track Z, rotation handles orientation.
 

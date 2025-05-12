@@ -1,8 +1,7 @@
 use crate::level::{
     common::{self, Param, spawn_static_cuboid},
-    utils::{BASE_Y, Geometry, TextureAssets, TrackOffsets},
+    utils::{BASE_Y, TextureAssets, TrackOffsets},
 };
-use avian3d::prelude::{Collider, RigidBody};
 use bevy::{
     animation::{AnimationTarget, AnimationTargetId, animated_field},
     prelude::*,

@@ -1,6 +1,6 @@
 use crate::level::{
     common,
-    utils::{BASE_Y, Geometry, TextureAssets, TrackOffsets},
+    utils::{BASE_Y, TextureAssets, TrackOffsets},
 };
 use avian3d::prelude::Collider; // Use Collider enum directly
 use bevy::prelude::*;

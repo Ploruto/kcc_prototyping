@@ -3,7 +3,7 @@ use bevy::{math::Affine2, prelude::*};
 use std::collections::HashMap;
 
 // Import necessary items from utils.rs (adjust path if needed)
-use super::utils::{BASE_Y, Geometry, TextureAssets, TrackOffsets, UV_TILE_FACTOR};
+use super::utils::{Geometry, TextureAssets, TrackOffsets, UV_TILE_FACTOR};
 
 // --- Spawning Helpers ---
 

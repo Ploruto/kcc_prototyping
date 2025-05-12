@@ -1,8 +1,7 @@
 use crate::level::{
     common::{self, Param},
-    utils::{BASE_Y, Geometry, TextureAssets, TrackOffsets},
+    utils::{BASE_Y, TextureAssets, TrackOffsets},
 };
-use avian3d::prelude::Collider;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
