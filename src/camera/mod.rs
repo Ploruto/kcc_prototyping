@@ -22,10 +22,7 @@ impl Plugin for CameraPlugin {
             RunFixedMainLoop,
             view_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
         );
-        app.add_systems(
-            RunFixedMainLoop,
-            update_origin.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
-        );
+        app.add_systems(Update, update_origin);
         app.add_observer(toggle_cam_perspective);
         app.add_observer(toggle_fly_cam);
     }

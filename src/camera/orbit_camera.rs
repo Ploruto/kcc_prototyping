@@ -12,12 +12,7 @@ pub(crate) fn plugin(app: &mut App) {
         RunFixedMainLoop,
         zoom_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
     );
-    app.add_systems(
-        RunFixedMainLoop,
-        update_spring_arm
-            .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop)
-            .after(super::update_origin),
-    );
+    app.add_systems(Update, update_spring_arm.after(super::update_origin));
 }
 
 #[derive(Component, Reflect, Debug, Clone, Copy)]
