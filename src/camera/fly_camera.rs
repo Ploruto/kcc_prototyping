@@ -5,7 +5,10 @@ use bevy_enhanced_input::prelude::*;
 use super::Attachments;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Update, fly_input);
+    app.add_systems(
+        RunFixedMainLoop,
+        fly_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+    );
 }
 
 #[derive(Component, Reflect, Debug)]

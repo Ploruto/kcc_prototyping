@@ -27,7 +27,10 @@ impl Plugin for KCCPlugin {
             FixedUpdate,
             (movement, platform_movement.after(PhysicsSet::Sync)),
         );
-        app.add_systems(Update, jump_input);
+        app.add_systems(
+            RunFixedMainLoop,
+            jump_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+        );
     }
 }
 
