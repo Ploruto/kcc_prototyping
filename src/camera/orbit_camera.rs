@@ -10,8 +10,11 @@ use bevy_enhanced_input::prelude::*;
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
         RunFixedMainLoop,
-        (zoom_input, update_spring_arm)
-            .chain()
+        zoom_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+    );
+    app.add_systems(
+        RunFixedMainLoop,
+        update_spring_arm
             .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop)
             .after(super::update_origin),
     );
