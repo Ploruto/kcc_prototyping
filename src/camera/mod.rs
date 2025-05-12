@@ -18,7 +18,14 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((fly_camera::plugin, orbit_camera::plugin));
-        app.add_systems(Update, (view_input, update_origin).chain());
+        app.add_systems(
+            RunFixedMainLoop,
+            view_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+        );
+        app.add_systems(
+            RunFixedMainLoop,
+            update_origin.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+        );
         app.add_observer(toggle_cam_perspective);
         app.add_observer(toggle_fly_cam);
     }
