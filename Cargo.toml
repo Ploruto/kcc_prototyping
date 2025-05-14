@@ -10,6 +10,9 @@ avian3d = { git = "https://github.com/Jondolf/avian.git", rev = "910ab04", featu
 bevy = "0.16.0"
 bevy_enhanced_input = "0.11.0"
 
+[dev-dependencies]
+examples_common = { path = "./examples_common" }
+
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
 opt-level = 1
@@ -29,3 +32,7 @@ codegen-units = 1
 # Do a second optimization pass over the entire program, including dependencies.
 # Slows compile times, marginal improvements.
 lto = "thin"
+
+[[example]]
+name = "3d_simple_character"
+path = "./examples/3d_simple_character.rs"

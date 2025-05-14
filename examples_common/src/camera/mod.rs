@@ -1,8 +1,6 @@
 pub mod fly_camera;
 pub mod orbit_camera;
 
-use std::f32::consts::PI;
-
 use crate::{
     AttachedTo, Attachments,
     input::{DefaultContext, Look, ToggleFlyCam, ToggleViewPerspective},
@@ -12,6 +10,7 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use fly_camera::{FlySpeed, FlyingCamera};
 use orbit_camera::{FirstPersonCamera, SpringArm};
+use std::f32::consts::PI;
 
 pub struct CameraPlugin;
 

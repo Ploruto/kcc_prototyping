@@ -1,20 +1,21 @@
-use std::f32::consts::PI;
-
-use avian3d::{
-    prelude::{
-        Collider, CollisionLayers, PhysicsSet, RigidBody, Sensor, SpatialQuery, SpatialQueryFilter,
-    },
-    sync::PreviousGlobalTransform,
+use crate::{
+    EXAMPLE_AIR_ACCELERATION, EXAMPLE_CHARACTER_CAPSULE_LENGTH, EXAMPLE_CHARACTER_RADIUS,
+    EXAMPLE_FRICTION, EXAMPLE_GRAVITY, EXAMPLE_GROUND_ACCELERATION, EXAMPLE_GROUND_CHECK_DISTANCE,
+    EXAMPLE_JUMP_IMPULSE, EXAMPLE_MOVEMENT_SPEED, EXAMPLE_STEP_HEIGHT, EXAMPLE_WALKABLE_ANGLE,
+    camera::MainCamera,
+    input::{self, DefaultContext, Jump},
 };
+use avian3d::{prelude::*, sync::PreviousGlobalTransform};
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{ActionState, Actions};
-
-use crate::{
-    camera::MainCamera,
-    character::*,
-    input::{self, DefaultContext, Jump},
-    move_and_slide::*,
+use kcc_prototype::{
+    character::{
+        Ground, ground_check, is_walkable, motion_on_point, project_motion_on_ground,
+        project_motion_on_wall, try_climb_step,
+    },
+    move_and_slide::{MoveAndSlideConfig, move_and_slide, sweep_check},
 };
+use std::f32::consts::PI;
 
 // @todo: we should probably move all of this into an example file, then make the project a lib instead of a bin.
 
