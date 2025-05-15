@@ -1,13 +1,10 @@
-use super::{Attachments, FollowOrigin};
-use crate::{
-    AttachedTo,
-    input::{OrbitCameraContext, OrbitZoom},
-};
+use super::{CameraTarget, CameraTargetOf, FollowOrigin};
+use crate::input::{OrbitCameraContext, OrbitZoom};
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 
-pub(crate) fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         RunFixedMainLoop,
         zoom_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
@@ -17,7 +14,7 @@ pub(crate) fn plugin(app: &mut App) {
 
 #[derive(Component, Reflect, Debug, Clone, Copy)]
 #[reflect(Component)]
-pub(crate) struct SpringArm {
+pub(super) struct SpringArm {
     pub distance: f32,
     pub target_distance: f32,
     pub recover_speed: f32,
@@ -39,10 +36,10 @@ impl Default for SpringArm {
 
 #[derive(Component, Reflect, Default, Debug, Clone, Copy)]
 #[reflect(Component)]
-pub(crate) struct FirstPersonCamera; // Used for toggling the spring arm distance without removing it
+pub(super) struct FirstPersonCamera; // Used for toggling the spring arm distance without removing it
 
-pub(crate) fn zoom_input(
-    targets: Query<(&Actions<OrbitCameraContext>, &Attachments)>,
+pub(super) fn zoom_input(
+    targets: Query<(&Actions<OrbitCameraContext>, &CameraTarget)>,
     mut cameras: Query<&mut SpringArm>,
 ) -> Result {
     for (actions, owned_cameras) in &targets {
@@ -59,13 +56,13 @@ pub(crate) fn zoom_input(
     Ok(())
 }
 
-pub(crate) fn update_spring_arm(
+pub(super) fn update_spring_arm(
     spatial_query: SpatialQuery,
     mut cameras: Query<(
         &mut SpringArm,
         &mut Transform,
         &FollowOrigin,
-        &AttachedTo,
+        &CameraTargetOf,
         Has<FirstPersonCamera>,
     )>,
     time: Res<Time>,

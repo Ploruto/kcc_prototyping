@@ -2,9 +2,8 @@ pub mod fly_camera;
 pub mod orbit_camera;
 
 use crate::{
-    AttachedTo, Attachments,
+    Frozen,
     input::{DefaultContext, Look, ToggleFlyCam, ToggleViewPerspective},
-    movement::Frozen,
 };
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
@@ -12,7 +11,7 @@ use fly_camera::{FlySpeed, FlyingCamera};
 use orbit_camera::{FirstPersonCamera, SpringArm};
 use std::f32::consts::PI;
 
-pub struct CameraPlugin;
+pub(crate) struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
@@ -30,6 +29,14 @@ impl Plugin for CameraPlugin {
 #[derive(Component)]
 #[require(Camera3d, Sensitivity, ViewAngles, FollowOrigin, SpringArm, FlySpeed)]
 pub struct MainCamera;
+
+#[derive(Component)]
+#[relationship(relationship_target = CameraTarget)]
+pub struct CameraTargetOf(pub Entity);
+
+#[derive(Component)]
+#[relationship_target(relationship = CameraTargetOf)]
+pub struct CameraTarget(Entity);
 
 /// The look sensitivity of a camera
 #[derive(Component, Reflect, Debug)]
@@ -73,7 +80,7 @@ pub struct FollowOffset {
 fn toggle_cam_perspective(
     trigger: Trigger<Fired<ToggleViewPerspective>>,
     mut commands: Commands,
-    query: Query<&Attachments>,
+    query: Query<&CameraTarget>,
     cameras: Query<(Entity, Has<FirstPersonCamera>), With<Camera>>,
 ) -> Result {
     let attachments = query.get(trigger.target())?;
@@ -91,7 +98,7 @@ fn toggle_cam_perspective(
 fn toggle_fly_cam(
     trigger: Trigger<Fired<ToggleFlyCam>>,
     mut commands: Commands,
-    mut query: Query<&Attachments>,
+    mut query: Query<&CameraTarget>,
     cameras: Query<(Entity, Has<FlyingCamera>), With<Camera>>,
 ) -> Result {
     let attachments = query.get_mut(trigger.target())?;
@@ -144,7 +151,7 @@ pub(crate) fn update_origin(
         &mut Transform,
         &ViewAngles,
         &FollowOffset,
-        &AttachedTo,
+        &CameraTargetOf,
     )>,
 ) -> Result {
     for (mut origin, mut transform, angles, offset, attached_to) in &mut cameras {

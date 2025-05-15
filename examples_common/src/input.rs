@@ -20,19 +20,19 @@ pub struct Jump;
 
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
-pub struct CaptureCursor;
+pub(crate) struct CaptureCursor;
 
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
-pub struct ReleaseCursor;
+pub(crate) struct ReleaseCursor;
 
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
-pub struct ToggleViewPerspective;
+pub(crate) struct ToggleViewPerspective;
 
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
-pub struct ToggleFlyCam;
+pub(crate) struct ToggleFlyCam;
 
 // --- Fly Camera Specific Actions ---
 
@@ -43,7 +43,7 @@ pub(crate) struct Fly;
 // --- Orbit Camera Specific Actions  ---
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = Vec2)]
-pub struct OrbitZoom;
+pub(crate) struct OrbitZoom;
 
 // --- Input Contexts ---
 
@@ -53,11 +53,11 @@ pub struct DefaultContext;
 
 /// Context for Fly Camera specific controls.
 #[derive(InputContext, Default)]
-pub struct FlyCameraContext;
+pub(crate) struct FlyCameraContext;
 
 /// Context for Orbit Camera specific controls.
 #[derive(InputContext, Default)]
-pub struct OrbitCameraContext;
+pub(crate) struct OrbitCameraContext;
 
 // --- Plugin Setup ---
 
@@ -78,6 +78,14 @@ impl Plugin for InputPlugin {
             .add_observer(capture_cursor)
             .add_observer(release_cursor);
     }
+}
+
+pub fn default_input_contexts() -> impl Bundle {
+    (
+        Actions::<DefaultContext>::default(),
+        Actions::<FlyCameraContext>::default(),
+        Actions::<OrbitCameraContext>::default(),
+    )
 }
 
 // --- Binding Systems ---

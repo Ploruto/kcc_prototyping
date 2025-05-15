@@ -35,4 +35,4 @@ lto = "thin"
 
 [[example]]
 name = "3d_simple_character"
-path = "./examples/3d_simple_character.rs"
+path = "./examples/3d_simple_character/main.rs"
