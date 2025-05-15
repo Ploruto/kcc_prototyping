@@ -1,4 +1,4 @@
-use super::{CameraTarget, CameraTargetOf, FollowOrigin};
+use super::{FollowOrigin, MainCamera, TargetedBy, Targeting};
 use crate::input::{OrbitCameraContext, OrbitZoom};
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -39,21 +39,17 @@ impl Default for SpringArm {
 pub(super) struct FirstPersonCamera; // Used for toggling the spring arm distance without removing it
 
 pub(super) fn zoom_input(
-    targets: Query<(&Actions<OrbitCameraContext>, &CameraTarget)>,
-    mut cameras: Query<&mut SpringArm>,
-) -> Result {
-    for (actions, owned_cameras) in &targets {
-        let mut iter = cameras.iter_many_mut(owned_cameras.iter());
-        while let Some(mut arm) = iter.fetch_next() {
+    targets: Query<(&Actions<OrbitCameraContext>, &TargetedBy)>,
+    mut cameras: Query<&mut SpringArm, With<MainCamera>>,
+) {
+    for (actions, targeted_by) in &targets {
+        if let Ok(mut arm) = cameras.get_mut(targeted_by.0) {
             let zoom_input = actions.action::<OrbitZoom>().value().as_axis2d();
             let zoom_delta = zoom_input.y * arm.distance * 0.1; // TODO: configurable speed
-
             arm.target_distance -= zoom_delta;
             arm.target_distance = arm.target_distance.clamp(0.1, 100.0); // TODO: configurable range
         }
     }
-
-    Ok(())
 }
 
 pub(super) fn update_spring_arm(
@@ -62,7 +58,7 @@ pub(super) fn update_spring_arm(
         &mut SpringArm,
         &mut Transform,
         &FollowOrigin,
-        &CameraTargetOf,
+        &Targeting,
         Has<FirstPersonCamera>,
     )>,
     time: Res<Time>,

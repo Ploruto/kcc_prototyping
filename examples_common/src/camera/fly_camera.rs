@@ -2,7 +2,7 @@ use crate::input::{DefaultContext, Fly, FlyCameraContext, Move};
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 
-use super::CameraTarget;
+use super::TargetedBy;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
@@ -30,7 +30,7 @@ fn fly_input(
     targets: Query<(
         &Actions<DefaultContext>,
         &Actions<FlyCameraContext>,
-        &CameraTarget,
+        &TargetedBy,
     )>,
     mut cameras: Query<(&mut Transform, &FlySpeed), With<FlyingCamera>>,
     time: Res<Time>,

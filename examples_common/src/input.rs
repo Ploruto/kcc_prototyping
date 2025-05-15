@@ -20,30 +20,30 @@ pub struct Jump;
 
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
-pub(crate) struct CaptureCursor;
+pub(super) struct CaptureCursor;
 
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
-pub(crate) struct ReleaseCursor;
+pub(super) struct ReleaseCursor;
 
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
-pub(crate) struct ToggleViewPerspective;
+pub(super) struct ToggleViewPerspective;
 
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = bool)]
-pub(crate) struct ToggleFlyCam;
+pub(super) struct ToggleFlyCam;
 
 // --- Fly Camera Specific Actions ---
 
 #[derive(InputAction, Debug, Clone, Copy)]
 #[input_action(output = f32)]
-pub(crate) struct Fly;
+pub(super) struct Fly;
 
 // --- Orbit Camera Specific Actions  ---
 #[derive(Debug, Clone, Copy, InputAction)]
 #[input_action(output = Vec2)]
-pub(crate) struct OrbitZoom;
+pub(super) struct OrbitZoom;
 
 // --- Input Contexts ---
 
@@ -53,15 +53,15 @@ pub struct DefaultContext;
 
 /// Context for Fly Camera specific controls.
 #[derive(InputContext, Default)]
-pub(crate) struct FlyCameraContext;
+pub(super) struct FlyCameraContext;
 
 /// Context for Orbit Camera specific controls.
 #[derive(InputContext, Default)]
-pub(crate) struct OrbitCameraContext;
+pub(super) struct OrbitCameraContext;
 
 // --- Plugin Setup ---
 
-pub struct InputPlugin;
+pub(super) struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {

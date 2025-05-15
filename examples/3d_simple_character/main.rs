@@ -1,13 +1,17 @@
 mod plugin;
 
 use avian3d::PhysicsPlugins;
-use bevy::prelude::*;
+use bevy::{
+    pbr::{Atmosphere, light_consts::lux},
+    prelude::*,
+    render::camera::Exposure,
+};
 use examples_common::{
     ExampleCommonPlugin,
-    camera::{CameraTargetOf, MainCamera},
+    camera::{FollowOffset, MainCamera, Targeting},
     input::default_input_contexts,
 };
-use plugin::Character;
+use plugin::{Character, KCCPlugin};
 
 const CHARACTER_RADIUS: f32 = 0.35;
 const CHARACTER_CAPSULE_LENGTH: f32 = 1.0;
@@ -27,9 +31,9 @@ fn main() -> AppExit {
             DefaultPlugins,
             ExampleCommonPlugin,
             PhysicsPlugins::default(),
+            KCCPlugin,
         ))
         .add_systems(Startup, setup)
-        .add_systems(Update, set_main_camera_target)
         .run()
 }
 
@@ -38,27 +42,42 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    commands.spawn((
-        Transform::from_xyz(0.0, 10.5, 0.0),
-        default_input_contexts(),
-        Character::default(),
-        Mesh3d(meshes.add(Capsule3d::new(CHARACTER_RADIUS, CHARACTER_CAPSULE_LENGTH))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::WHITE.with_alpha(0.25),
-            alpha_mode: AlphaMode::Blend,
-            ..Default::default()
-        })),
-    ));
-}
+    let character = commands
+        .spawn((
+            Transform::from_xyz(0.0, 10.5, 0.0),
+            default_input_contexts(),
+            Character::default(),
+            Mesh3d(meshes.add(Capsule3d::new(CHARACTER_RADIUS, CHARACTER_CAPSULE_LENGTH))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::WHITE.with_alpha(0.25),
+                alpha_mode: AlphaMode::Blend,
+                ..Default::default()
+            })),
+        ))
+        .id();
 
-fn set_main_camera_target(
-    mut commands: Commands,
-    main_camera: Single<Entity, Added<MainCamera>>,
-    character: Single<Entity, With<Character>>,
-) {
-    let main_camera = main_camera.into_inner();
-    let character = character.into_inner();
-    commands
-        .entity(character)
-        .insert(CameraTargetOf(main_camera));
+    commands.spawn((
+        MainCamera,
+        Targeting(character),
+        FollowOffset {
+            absolute: Vec3::Y * CHARACTER_CAPSULE_LENGTH / 2.0,
+            ..Default::default()
+        },
+        Camera {
+            hdr: true,
+            ..Default::default()
+        },
+        Msaa::default(),
+        Atmosphere::EARTH,
+        Exposure::SUNLIGHT,
+        Projection::Perspective(PerspectiveProjection {
+            fov: 90.0_f32.to_radians(),
+            ..Default::default()
+        }),
+        AmbientLight {
+            brightness: lux::AMBIENT_DAYLIGHT,
+            ..Default::default()
+        },
+        Transform::from_xyz(0.0, 0.5, 0.0),
+    ));
 }

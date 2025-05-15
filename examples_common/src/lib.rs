@@ -3,12 +3,8 @@ pub mod input;
 pub mod level;
 
 use avian3d::prelude::*;
-use bevy::{
-    pbr::{Atmosphere, light_consts::lux},
-    prelude::*,
-    render::camera::Exposure,
-};
-use camera::{CameraPlugin, FollowOffset, MainCamera};
+use bevy::{pbr::light_consts::lux, prelude::*};
+use camera::CameraPlugin;
 use input::InputPlugin;
 use level::LevelGeneratorPlugin;
 
@@ -34,31 +30,6 @@ impl Plugin for ExampleCommonPlugin {
 pub struct Frozen;
 
 fn setup(mut commands: Commands) {
-    commands.spawn((
-        MainCamera,
-        FollowOffset::default(),
-        // FollowOffset {
-        //     absolute: Vec3::Y * EXAMPLE_CHARACTER_CAPSULE_LENGTH / 2.0,
-        //     ..Default::default()
-        // },
-        Camera {
-            hdr: true,
-            ..Default::default()
-        },
-        Camera3d::default(),
-        Atmosphere::EARTH,
-        Exposure::SUNLIGHT,
-        Projection::Perspective(PerspectiveProjection {
-            fov: 90.0_f32.to_radians(),
-            ..Default::default()
-        }),
-        AmbientLight {
-            brightness: lux::AMBIENT_DAYLIGHT,
-            ..Default::default()
-        },
-        Transform::from_xyz(0.0, 0.5, 0.0),
-    ));
-
     // Sun
     commands.spawn((
         DirectionalLight {
