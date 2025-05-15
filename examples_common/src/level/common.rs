@@ -1,14 +1,12 @@
+use super::utils::{Geometry, TextureAssets, TrackOffsets, UV_TILE_FACTOR};
 use avian3d::prelude::{Collider, RigidBody};
 use bevy::{math::Affine2, prelude::*};
 use std::collections::HashMap;
 
-// Import necessary items from utils.rs (adjust path if needed)
-use super::utils::{Geometry, TextureAssets, TrackOffsets, UV_TILE_FACTOR};
-
 // --- Spawning Helpers ---
 
 /// Calculates UV scaling based on object size to maintain texture density.
-pub fn calculate_uv_scale(object_size: Vec3, tile_factor: f32) -> Affine2 {
+fn calculate_uv_scale(object_size: Vec3, tile_factor: f32) -> Affine2 {
     let mut dims = [
         object_size.x.abs(),
         object_size.y.abs(),
@@ -19,7 +17,7 @@ pub fn calculate_uv_scale(object_size: Vec3, tile_factor: f32) -> Affine2 {
 }
 
 /// Creates a StandardMaterial with specific texture and UV transform.
-pub fn create_material_with_uv(
+fn create_material_with_uv(
     texture_index: usize,
     object_size: Vec3,
     level_assets: &Res<TextureAssets>,
@@ -53,7 +51,7 @@ pub fn create_material_with_uv(
 
 /// Calculates UV scaling based on object size approximation (bounding box).
 /// Note: This might not be perfect for complex shapes, but provides a starting point.
-pub fn calculate_uv_scale_approx(bounding_box_size: Vec3, tile_factor: f32) -> Affine2 {
+fn calculate_uv_scale_approx(bounding_box_size: Vec3, tile_factor: f32) -> Affine2 {
     let mut dims = [
         bounding_box_size.x.abs(),
         bounding_box_size.y.abs(),
@@ -64,7 +62,7 @@ pub fn calculate_uv_scale_approx(bounding_box_size: Vec3, tile_factor: f32) -> A
 }
 
 /// Creates a StandardMaterial with specific texture and UV transform (using approx scale).
-pub fn create_material_with_uv_approx(
+fn create_material_with_uv_approx(
     texture_index: usize,
     bounding_box_size: Vec3, // Use bounding box for UV scale approximation
     level_assets: &Res<TextureAssets>,
@@ -98,7 +96,7 @@ pub fn create_material_with_uv_approx(
 }
 
 /// Spawns a basic static cuboid entity.
-pub fn spawn_static_cuboid(
+pub(super) fn spawn_static_cuboid(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
@@ -130,7 +128,7 @@ pub fn spawn_static_cuboid(
 }
 
 /// Spawns a kinematic cuboid entity (useful base for moving platforms).
-pub fn spawn_kinematic_cuboid(
+pub(super) fn spawn_kinematic_cuboid(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
@@ -162,7 +160,7 @@ pub fn spawn_kinematic_cuboid(
 }
 
 /// Spawns a static entity with a specified mesh and collider.
-pub fn spawn_static_shape(
+pub(super) fn spawn_static_shape(
     commands: &mut Commands,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     level_assets: &Res<TextureAssets>,
@@ -193,7 +191,7 @@ pub fn spawn_static_shape(
 
 /// Represents a parameter range for permutation generation.
 #[derive(Clone, Debug)]
-pub enum Param {
+pub(super) enum Param {
     Float { start: f32, end: f32, step: f32 },
     Int { start: i32, end: i32, step: i32 },
     // Vec3, Bool, etc. could be added if needed
@@ -203,7 +201,7 @@ pub enum Param {
 /// This version passes animation resources optionally via the closure's captured environment
 /// or by making the generator function generic over a tuple of resources if needed.
 /// For simplicity here, we assume the generator function knows if it needs animation resources.
-pub fn generate_permutations<F>(
+pub(super) fn generate_permutations<F>(
     params: &[(&str, Param)],
     mut generator_fn: F,
     // Pass necessary Bevy resources that the generator_fn will need

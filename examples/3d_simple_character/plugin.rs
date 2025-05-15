@@ -1,22 +1,24 @@
-use std::f32::consts::PI;
-
-use avian3d::{
-    prelude::{
-        Collider, CollisionLayers, PhysicsSet, RigidBody, Sensor, SpatialQuery, SpatialQueryFilter,
-    },
-    sync::PreviousGlobalTransform,
+use crate::{
+    AIR_ACCELERATION, CHARACTER_CAPSULE_LENGTH, CHARACTER_RADIUS, FRICTION, GRAVITY,
+    GROUND_ACCELERATION, GROUND_CHECK_DISTANCE, JUMP_IMPULSE, MOVEMENT_SPEED, STEP_HEIGHT,
+    WALKABLE_ANGLE,
 };
+use avian3d::{prelude::*, sync::PreviousGlobalTransform};
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{ActionState, Actions};
-
-use crate::{
+use examples_common::{
+    Frozen,
     camera::MainCamera,
-    character::*,
     input::{self, DefaultContext, Jump},
-    move_and_slide::*,
 };
-
-// @todo: we should probably move all of this into an example file, then make the project a lib instead of a bin.
+use kcc_prototype::{
+    character::{
+        Ground, ground_check, is_walkable, motion_on_point, project_motion_on_ground,
+        project_motion_on_wall, try_climb_step,
+    },
+    move_and_slide::{MoveAndSlideConfig, move_and_slide, sweep_check},
+};
+use std::f32::consts::PI;
 
 pub struct KCCPlugin;
 
@@ -61,7 +63,7 @@ fn update_character_filter(
 #[derive(Component)]
 #[require(
     RigidBody = RigidBody::Kinematic,
-    Collider = Capsule3d::new(EXAMPLE_CHARACTER_RADIUS, EXAMPLE_CHARACTER_CAPSULE_LENGTH),
+    Collider = Capsule3d::new(CHARACTER_RADIUS, CHARACTER_CAPSULE_LENGTH),
     CharacterFilter,
 )]
 pub struct Character {
@@ -110,15 +112,10 @@ impl Default for Character {
     }
 }
 
-// Marker component used to freeze player movement when the main camera is in fly-mode.
-// This shouldn't be strictly necessary if we figure out how to properly layer InputContexts.
-#[derive(Component)]
-pub struct Frozen;
-
 fn jump_input(mut query: Query<(&mut Character, &Actions<DefaultContext>)>) {
     for (mut character, actions) in &mut query {
         if character.grounded() && actions.action::<Jump>().state() == ActionState::Fired {
-            character.jump(EXAMPLE_JUMP_IMPULSE);
+            character.jump(JUMP_IMPULSE);
         }
     }
 }
@@ -208,17 +205,17 @@ fn movement(
 
         let max_acceleration = match character.ground {
             Some(_) => {
-                let friction = friction(character.velocity, EXAMPLE_FRICTION, time.delta_secs());
+                let friction = friction(character.velocity, FRICTION, time.delta_secs());
                 character.velocity += friction;
 
-                EXAMPLE_GROUND_ACCELERATION
+                GROUND_ACCELERATION
             }
             None => {
                 // Apply gravity when not grounded
-                let gravity = character.up * -EXAMPLE_GRAVITY * time.delta_secs();
+                let gravity = character.up * -GRAVITY * time.delta_secs();
                 character.velocity += gravity;
 
-                EXAMPLE_AIR_ACCELERATION
+                AIR_ACCELERATION
             }
         };
 
@@ -227,7 +224,7 @@ fn movement(
             character.velocity,
             direction,
             max_acceleration,
-            EXAMPLE_MOVEMENT_SPEED,
+            MOVEMENT_SPEED,
             time.delta_secs(),
         );
 
@@ -265,12 +262,9 @@ fn movement(
                 // Move to the hit point
                 transform.translation += direction * safe_distance;
 
-                if let Some(ground) = Ground::new_if_walkable(
-                    hit.entity,
-                    hit.normal1,
-                    character.up,
-                    EXAMPLE_WALKABLE_ANGLE,
-                ) {
+                if let Some(ground) =
+                    Ground::new_if_walkable(hit.entity, hit.normal1, character.up, WALKABLE_ANGLE)
+                {
                     new_ground = Some(ground);
 
                     // If the ground is walkable, project motion on ground plane
@@ -315,7 +309,7 @@ fn movement(
                     hit.hit_data.entity,
                     hit.hit_data.normal1,
                     character.up,
-                    EXAMPLE_WALKABLE_ANGLE,
+                    WALKABLE_ANGLE,
                 ) {
                     new_ground = Some(ground);
 
@@ -405,8 +399,8 @@ fn movement(
                 transform.rotation,
                 &spatial_query,
                 &filter.0,
-                EXAMPLE_GROUND_CHECK_DISTANCE,
-                EXAMPLE_WALKABLE_ANGLE,
+                GROUND_CHECK_DISTANCE,
+                WALKABLE_ANGLE,
             ) {
                 transform.translation -= character.up * safe_distance;
                 new_ground = Some(ground);
@@ -452,8 +446,8 @@ fn try_step_up_on_hit(
 
     // This is necessary for capsule colliders since the normal angle changes depending on
     // how far out on a ledge the character is standing
-    let a = 1.0 - EXAMPLE_WALKABLE_ANGLE.cos();
-    let min_inward_distance = EXAMPLE_CHARACTER_RADIUS * a;
+    let a = 1.0 - WALKABLE_ANGLE.cos();
+    let min_inward_distance = CHARACTER_RADIUS * a;
 
     // Step into the hit normal alil bit, this helps with the capsule collider.
     // Cylinders don't need this since they have a flat bottom.
@@ -471,7 +465,7 @@ fn try_step_up_on_hit(
         step_motion,
         rotation,
         up,
-        EXAMPLE_STEP_HEIGHT + EXAMPLE_GROUND_CHECK_DISTANCE,
+        STEP_HEIGHT + GROUND_CHECK_DISTANCE,
         epsilon,
         &filter,
     ) else {
@@ -485,10 +479,10 @@ fn try_step_up_on_hit(
         up,
         // Subtract a small amount from walkable angle to make sure we can't step
         // on surfaces that are nearly excactly the walkable angle of the character
-        EXAMPLE_WALKABLE_ANGLE - 1e-4,
+        WALKABLE_ANGLE - 1e-4,
     )?;
 
-    if !is_walkable(hit.normal1, up, EXAMPLE_WALKABLE_ANGLE - 1e-4) {
+    if !is_walkable(hit.normal1, up, WALKABLE_ANGLE - 1e-4) {
         return None;
     }
 

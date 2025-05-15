@@ -9,7 +9,7 @@ pub const DEFAULT_TRACK_START_X: f32 = -90.0; // Common starting X for all track
 
 /// Resource to track the next available X-coordinate *per track*.
 #[derive(Resource, Debug)]
-pub struct TrackOffsets {
+pub(super) struct TrackOffsets {
     /// Key: Track Name (String), Value: Next available X coordinate for that track
     pub offsets: HashMap<String, f32>,
     /// Default spacing added after each element within a track
@@ -46,7 +46,7 @@ impl TrackOffsets {
 
 /// Resource holding handles to loaded prototype textures and fallback material.
 #[derive(Resource, Default)]
-pub struct TextureAssets {
+pub(super) struct TextureAssets {
     pub prototype_textures: Vec<Handle<Image>>,
     pub fallback_material: Handle<StandardMaterial>,
 }
@@ -55,4 +55,4 @@ pub struct TextureAssets {
 
 /// Marker component for level geometry entities.
 #[derive(Component)]
-pub struct Geometry;
+pub(super) struct Geometry;
