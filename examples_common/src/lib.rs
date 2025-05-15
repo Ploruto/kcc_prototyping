@@ -3,7 +3,7 @@ pub mod input;
 pub mod level;
 pub mod movement;
 
-use avian3d::{PhysicsPlugins, prelude::*};
+use avian3d::prelude::*;
 use bevy::{
     pbr::{Atmosphere, light_consts::lux},
     prelude::*,
@@ -35,21 +35,20 @@ pub struct AttachedTo(pub Entity);
 #[relationship_target(relationship = AttachedTo)]
 pub struct Attachments(Vec<Entity>); // not sure about generaling this 
 
-fn main() -> AppExit {
-    App::new()
-        .add_plugins((
-            DefaultPlugins,
+pub struct ExampleCommonPlugin;
+
+impl Plugin for ExampleCommonPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((
             InputPlugin,
             CameraPlugin,
-            PhysicsPlugins::default(),
-            PhysicsDebugPlugin::default(),
             LevelGeneratorPlugin,
             KCCPlugin,
             PhysicsDiagnosticsPlugin,
             PhysicsDiagnosticsUiPlugin,
         ))
-        .add_systems(Startup, setup)
-        .run()
+        .add_systems(Startup, setup);
+    }
 }
 
 fn setup(

@@ -17,8 +17,6 @@ use kcc_prototype::{
 };
 use std::f32::consts::PI;
 
-// @todo: we should probably move all of this into an example file, then make the project a lib instead of a bin.
-
 pub struct KCCPlugin;
 
 impl Plugin for KCCPlugin {
