@@ -1,0 +1,12 @@
+[package]
+name = "examples_common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kcc_prototype = { path = "../" }
+avian3d = { git = "https://github.com/Jondolf/avian.git", rev = "910ab04", features = [
+    "diagnostic_ui",
+] }
+bevy = "0.16.0"
+bevy_enhanced_input = "0.11.0"

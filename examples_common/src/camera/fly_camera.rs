@@ -2,9 +2,9 @@ use crate::input::{DefaultContext, Fly, FlyCameraContext, Move};
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 
-use super::Attachments;
+use super::TargetedBy;
 
-pub(crate) fn plugin(app: &mut App) {
+pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         RunFixedMainLoop,
         fly_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
@@ -14,11 +14,11 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
 #[require(FlySpeed)]
-pub(crate) struct FlyingCamera;
+pub(super) struct FlyingCamera;
 
 #[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
-pub(crate) struct FlySpeed(pub f32);
+pub(super) struct FlySpeed(pub f32);
 
 impl Default for FlySpeed {
     fn default() -> Self {
@@ -30,7 +30,7 @@ fn fly_input(
     targets: Query<(
         &Actions<DefaultContext>,
         &Actions<FlyCameraContext>,
-        &Attachments,
+        &TargetedBy,
     )>,
     mut cameras: Query<(&mut Transform, &FlySpeed), With<FlyingCamera>>,
     time: Res<Time>,
