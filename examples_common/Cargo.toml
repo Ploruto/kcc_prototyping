@@ -9,4 +9,4 @@ avian3d = { git = "https://github.com/Jondolf/avian.git", rev = "910ab04", featu
     "diagnostic_ui",
 ] }
 bevy = "0.16.0"
-bevy_enhanced_input = "0.11.0"
+bevy_enhanced_input = "0.13.0"

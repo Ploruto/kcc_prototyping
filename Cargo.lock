@@ -610,9 +610,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_enhanced_input"
-version = "0.11.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a73a9e5981b0b94b453a7b5ecdcb1f061da8dc8a9732683f5c55a9d887126d74"
+checksum = "06d7f7a45b5db210038214dd406128e6d2eec7683492c07ec5134483ab34a94e"
 dependencies = [
  "bevy",
  "bevy_enhanced_input_macros",
@@ -624,9 +624,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_enhanced_input_macros"
-version = "0.11.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5f50d91e55d560d1341b6592f80434889b8002a765121f60b44084ca041af8a"
+checksum = "e2ac2287dcf9158d7259961b129710dd0a6b41b56a3319df0af6030fa841b075"
 dependencies = [
  "darling",
  "proc-macro2",

@@ -114,7 +114,8 @@ impl Default for Character {
 
 fn jump_input(mut query: Query<(&mut Character, &Actions<DefaultContext>)>) {
     for (mut character, actions) in &mut query {
-        if character.grounded() && actions.action::<Jump>().state() == ActionState::Fired {
+        if character.grounded() && actions.state::<Jump>().unwrap_or_default() == ActionState::Fired
+        {
             character.jump(JUMP_IMPULSE);
         }
     }
@@ -194,7 +195,7 @@ fn movement(
     let main_camera_transform = main_camera.into_inner();
     for (actions, mut transform, mut character, collider, filter, has_sensor) in &mut q_kcc {
         // Get the raw 2D input vector
-        let input_vec = actions.action::<input::Move>().value().as_axis2d();
+        let input_vec = actions.value::<input::Move>().unwrap_or_default();
 
         // Extract just the yaw from the camera rotation
         let camera_yaw = main_camera_transform.rotation.to_euler(EulerRot::YXZ).0;

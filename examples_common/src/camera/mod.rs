@@ -129,7 +129,7 @@ fn view_input(
     let actions = actions.into_inner();
 
     for (mut angles, mut transform, sensitivity) in &mut cameras {
-        let orbit_input = actions.action::<Look>().value().as_axis2d() * sensitivity.0;
+        let orbit_input = actions.value::<Look>().unwrap_or_default() * sensitivity.0;
         let angle_deltas = orbit_input * PI * time.delta_secs();
 
         angles.pitch += angle_deltas.y;

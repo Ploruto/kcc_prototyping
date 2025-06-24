@@ -44,7 +44,7 @@ pub(super) fn zoom_input(
 ) {
     for (actions, targeted_by) in &targets {
         if let Ok(mut arm) = cameras.get_mut(targeted_by.0) {
-            let zoom_input = actions.action::<OrbitZoom>().value().as_axis2d();
+            let zoom_input = actions.value::<OrbitZoom>().unwrap_or_default();
             let zoom_delta = zoom_input.y * arm.distance * 0.1; // TODO: configurable speed
             arm.target_distance -= zoom_delta;
             arm.target_distance = arm.target_distance.clamp(0.1, 100.0); // TODO: configurable range

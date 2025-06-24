@@ -36,8 +36,8 @@ fn fly_input(
     time: Res<Time>,
 ) {
     for (default_actions, fly_actions, attachments) in &targets {
-        let move_input = default_actions.action::<Move>().value().as_axis2d();
-        let fly_input = fly_actions.action::<Fly>().value().as_axis1d();
+        let move_input = default_actions.value::<Move>().unwrap_or_default();
+        let fly_input = fly_actions.value::<Fly>().unwrap_or_default();
 
         if move_input == Vec2::ZERO && fly_input == 0.0 {
             continue;

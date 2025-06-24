@@ -1,6 +1,6 @@
 use bevy::math::FloatPow;
 use bevy::prelude::*;
-use bevy::time::Virtual;
+use bevy::utils::TypeIdMap;
 use bevy::window::{CursorGrabMode, Window};
 use bevy_enhanced_input::prelude::*;
 
@@ -114,7 +114,7 @@ fn bind_default_context_actions(
         actions
             .bind::<Jump>()
             .to((KeyCode::Space, GamepadButton::East))
-            .with_conditions(JustPress::default());
+            .with_conditions(Press::default());
 
         // --- Camera Look (Used by FPS, potentially others if not overridden) ---
         actions.bind::<Look>().to((
@@ -127,11 +127,11 @@ fn bind_default_context_actions(
         actions
             .bind::<ToggleViewPerspective>()
             .to((KeyCode::KeyC, GamepadButton::DPadDown))
-            .with_conditions(JustPress::default());
+            .with_conditions(Press::default());
         actions
             .bind::<ToggleFlyCam>()
             .to((KeyCode::KeyF, GamepadButton::DPadUp))
-            .with_conditions(JustPress::default());
+            .with_conditions(Press::default());
     } else {
         warn!(
             "Failed to get Actions<DefaultContext> for entity {:?} during binding",
@@ -235,8 +235,8 @@ impl Default for AtLeast {
 impl InputModifier for AtLeast {
     fn apply(
         &mut self,
-        _: &bevy_enhanced_input::action_map::ActionMap,
-        _: &Time<Virtual>,
+        _: &TypeIdMap<UntypedAction>,
+        _: &InputTime,
         value: ActionValue,
     ) -> ActionValue {
         match value {
